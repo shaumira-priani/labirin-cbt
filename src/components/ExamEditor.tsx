@@ -227,4 +227,139 @@ export const ExamEditor: React.FC<Props> = ({ examId, onBack }) => {
                             </button>
                           </div>
                         )}
-                        {!d.imageUrl && <DraftImageUploadButton tempId={d.tempId} onUploaded={(url) => updateDraft(d.tempId, { imageUrl: url })}
+                        {!d.imageUrl && <DraftImageUploadButton tempId={d.tempId} onUploaded={(url) => updateDraft(d.tempId, { imageUrl: url })} />}
+                      </div>
+                      <button onClick={() => removeDraft(d.tempId)} className="text-stone-400 hover:text-rose-600 mt-1.5">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pl-6">
+                      {d.options.map((opt) => (
+                        <label key={opt.key} className={`flex items-center gap-2 text-xs px-2 py-1.5 rounded-lg border ${d.correctAnswer === opt.key ? 'border-emerald-400 bg-emerald-50' : 'border-stone-200'}`}>
+                          <input type="radio" checked={d.correctAnswer === opt.key} onChange={() => updateDraft(d.tempId, { correctAnswer: opt.key })} />
+                          <span className="font-semibold">{opt.key}.</span> {opt.text}
+                        </label>
+                      ))}
+                    </div>
+                    <div className="pl-6">
+                      <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wide">Pembahasan</label>
+                      <RichTextEditor
+                        value={d.explanation}
+                        onChange={(html) => updateDraft(d.tempId, { explanation: html })}
+                        placeholder="Penjelasan jawaban (opsional)..."
+                        minRows={1}
+                      />
+                    </div>
+                    {d.error && <p className="text-xs text-rose-600 pl-6">{d.error}</p>}
+                  </div>
+                ))}
+              </div>
+
+              {publishError && (
+                <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0" /> {publishError}
+                </p>
+              )}
+
+              <button
+                onClick={handlePublish}
+                disabled={publishing || errorCount > 0 || drafts.length === 0}
+                className="w-full flex items-center justify-center gap-2 bg-emerald-700 hover:bg-emerald-800 text-white font-semibold py-3 rounded-xl disabled:opacity-50"
+              >
+                {publishing && <Loader2 className="w-4 h-4 animate-spin" />} Simpan & Publikasikan {drafts.length} Soal
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === 'kelas' && (
+        <div className="space-y-3">
+          <button onClick={handleAddToken} className="text-sm px-4 py-2 border border-stone-300 rounded-xl hover:bg-stone-50">
+            + Tambah Kode untuk Kelas Ini
+          </button>
+          <div className="bg-white border border-stone-200 rounded-xl divide-y divide-stone-100">
+            {classTokens.map((ct) => (
+              <div key={ct.id} className="flex items-center justify-between px-4 py-3">
+                <div className="flex items-center gap-2 text-sm text-stone-700">
+                  <Users className="w-4 h-4 text-emerald-700" /> {ct.className}
+                </div>
+                <button onClick={() => copyCode(ct.accessCode)} className="flex items-center gap-1.5 text-sm font-mono bg-stone-100 px-3 py-1.5 rounded-lg hover:bg-stone-200">
+                  {ct.accessCode} {copiedCode === ct.accessCode ? <Check className="w-3.5 h-3.5 text-emerald-700" /> : <Copy className="w-3.5 h-3.5 text-stone-400" />}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {tab === 'monitoring' && (
+        <div className="space-y-3">
+          <p className="text-xs text-stone-500 flex items-center gap-1.5"><Radio className="w-3.5 h-3.5 text-emerald-600 animate-pulse" /> Update otomatis, tidak perlu refresh.</p>
+          {sessions.length === 0 ? (
+            <p className="text-center text-stone-400 py-10 text-sm">Belum ada murid yang mengerjakan.</p>
+          ) : (
+            <div className="bg-white border border-stone-200 rounded-xl divide-y divide-stone-100">
+              {sessions.map((s) => {
+                const pct = s.totalQuestions ? Math.round((s.answeredCount / s.totalQuestions) * 100) : 0;
+                return (
+                  <div key={s.id} className="px-4 py-3 space-y-1.5">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="font-semibold text-stone-800">{s.studentName} <span className="text-stone-400 font-normal">&middot; {s.studentClass}</span></span>
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                        s.status === 'submitted' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                      }`}>
+                        {s.status === 'submitted' ? `Selesai (${s.score})` : 'Mengerjakan'}
+                      </span>
+                    </div>
+                    <div className="w-full bg-stone-100 rounded-full h-2">
+                      <div className="bg-emerald-600 h-2 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-stone-400">
+                      <span>{s.answeredCount}/{s.totalQuestions} soal</span>
+                      {s.violationsCount > 0 && <span className="text-rose-500">{s.violationsCount} pelanggaran</span>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const DraftImageUploadButton: React.FC<{ tempId: string; onUploaded: (url: string) => void }> = ({ onUploaded }) => {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handlePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const validationError = validateImageFile(file);
+    if (validationError) { setError(validationError); return; }
+    setError(null);
+    setUploading(true);
+    try {
+      const url = await uploadImageToCloudinary(file);
+      onUploaded(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Upload gagal');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div>
+      <label className="inline-flex items-center gap-1.5 text-xs text-emerald-700 hover:text-emerald-800 cursor-pointer">
+        {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImageIcon className="w-3.5 h-3.5" />}
+        {uploading ? 'Mengupload...' : 'Tambah gambar untuk soal ini'}
+        <input type="file" accept="image/*" className="hidden" onChange={handlePick} disabled={uploading} />
+      </label>
+      {error && <p className="text-xs text-rose-600 mt-1">{error}</p>}
+    </div>
+  );
+};
