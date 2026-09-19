@@ -184,6 +184,9 @@ export async function parseWordFile(file: File): Promise<DraftQuestion[]> {
 export function validateDraft(d: DraftQuestion): string | undefined {
   const plainQuestion = stripHtml(d.question);
   if (!plainQuestion) return 'Pertanyaan kosong';
+  if (/<img[^>]+src="data:/.test(d.question) || /<img[^>]+src="data:/.test(d.explanation)) {
+    return 'Ada gambar yang ter-paste mentah (bukan lewat tombol upload). Hapus gambar itu, lalu pakai tombol upload gambar di toolbar.';
+  }
   if (d.options.length < 2) return `Opsi jawaban kurang (cuma ${d.options.length}, minimal 2)`;
   if (!d.correctAnswer) return 'Kunci jawaban tidak valid/kosong (harus A-E)';
   if (!d.options.some((o) => o.key === d.correctAnswer)) {
