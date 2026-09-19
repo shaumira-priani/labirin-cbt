@@ -93,15 +93,18 @@ export const ExamEditor: React.FC<Props> = ({ examId, onBack }) => {
     setPublishing(true);
     setPublishError(null);
     try {
-      const toSave = drafts.map((d) => ({
-        order: d.order,
-        question: d.question,
-        options: d.options,
-        correctAnswer: d.correctAnswer as OptionKey,
-        explanation: d.explanation,
-        topic: d.topic,
-        imageUrl: d.imageUrl,
-      }));
+      const toSave = drafts.map((d) => {
+        const q: Record<string, unknown> = {
+          order: d.order,
+          question: d.question,
+          options: d.options,
+          correctAnswer: d.correctAnswer as OptionKey,
+          explanation: d.explanation,
+        };
+        if (d.topic) q.topic = d.topic;
+        if (d.imageUrl) q.imageUrl = d.imageUrl;
+        return q as Omit<CustomQuestionDoc, 'id'>;
+      });
       await saveExamQuestions(examId, toSave);
       await publishExam(examId);
       setDrafts(null);
