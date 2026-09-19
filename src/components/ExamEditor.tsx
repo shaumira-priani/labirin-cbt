@@ -87,9 +87,12 @@ export const ExamEditor: React.FC<Props> = ({ examId, onBack }) => {
 
   const errorCount = drafts?.filter((d) => d.error).length ?? 0;
 
+  const [publishError, setPublishError] = useState<string | null>(null);
+
   const handlePublish = async () => {
     if (!drafts || errorCount > 0) return;
     setPublishing(true);
+    setPublishError(null);
     try {
       const toSave = drafts.map((d) => ({
         order: d.order,
@@ -104,6 +107,8 @@ export const ExamEditor: React.FC<Props> = ({ examId, onBack }) => {
       await publishExam(examId);
       setDrafts(null);
       await load();
+    } catch (err) {
+      setPublishError(err instanceof Error ? err.message : 'Gagal menyimpan/publikasikan soal. Coba lagi.');
     } finally {
       setPublishing(false);
     }
@@ -250,6 +255,12 @@ export const ExamEditor: React.FC<Props> = ({ examId, onBack }) => {
                   </div>
                 ))}
               </div>
+
+              {publishError && (
+                <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0" /> {publishError}
+                </p>
+              )}
 
               <button
                 onClick={handlePublish}
