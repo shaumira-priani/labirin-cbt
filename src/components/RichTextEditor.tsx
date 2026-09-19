@@ -74,6 +74,29 @@ export const RichTextEditor: React.FC<Props> = ({ value, onChange, placeholder, 
     }
   };
 
+  const handlePaste = async (e: React.ClipboardEvent<HTMLDivElement>) => {
+    const items = Array.from(e.clipboardData.items);
+    const imageItem = items.find((item) => item.type.startsWith('image/'));
+    if (!imageItem) return; // let normal text/rich-text paste behave as usual
+
+    e.preventDefault(); // stop the browser from embedding a raw base64 image
+    const file = imageItem.getAsFile();
+    if (!file) return;
+
+    const validationError = validateImageFile(file);
+    if (validationError) { setError(validationError); return; }
+    setError(null);
+    setUploading(true);
+    try {
+      const url = await uploadImageToCloudinary(file);
+      exec('insertHTML', `<img src="${url}" style="max-width:100%;border-radius:8px;margin:8px 0" /><p><br></p>`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Upload gambar tempel gagal');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   return (
     <div className="border border-stone-300 rounded-xl overflow-hidden">
       <div className="flex items-center gap-1 bg-stone-50 border-b border-stone-200 px-2 py-1.5">
@@ -93,6 +116,7 @@ export const RichTextEditor: React.FC<Props> = ({ value, onChange, placeholder, 
         contentEditable
         suppressContentEditableWarning
         onInput={() => ref.current && onChange(ref.current.innerHTML)}
+        onPaste={handlePaste}
         data-placeholder={placeholder}
         className="px-3 py-2 text-sm outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-400"
         style={{ minHeight: `${minRows * 1.5}rem` }}
