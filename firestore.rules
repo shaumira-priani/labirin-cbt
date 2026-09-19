@@ -1,0 +1,48 @@
+rules_version = '2';
+
+// Deploy via Firebase Console > Firestore Database > Rules tab > paste > Publish.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    match /teachers/{teacherId} {
+      allow read, write: if isSignedIn() && request.auth.uid == teacherId;
+    }
+
+    match /exams/{examId} {
+      allow read: if isSignedIn() && (
+        resource.data.status == 'published' ||
+        resource.data.teacherId == request.auth.uid
+      );
+      allow create: if isSignedIn() && request.resource.data.teacherId == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.teacherId == request.auth.uid;
+
+      match /classTokens/{tokenId} {
+        // Students need to read these (via a query) to verify access codes.
+        allow read: if isSignedIn();
+        allow write: if isSignedIn() &&
+          get(/databases/$(database)/documents/exams/$(examId)).data.teacherId == request.auth.uid;
+      }
+
+      match /questions/{questionId} {
+        allow read: if isSignedIn();
+        allow write: if isSignedIn() &&
+          get(/databases/$(database)/documents/exams/$(examId)).data.teacherId == request.auth.uid;
+      }
+    }
+
+    match /sessions/{sessionId} {
+      allow create: if isSignedIn() && request.resource.data.studentUid == request.auth.uid;
+      allow read: if isSignedIn() && (
+        resource.data.studentUid == request.auth.uid ||
+        resource.data.teacherId == request.auth.uid
+      );
+      allow update: if isSignedIn() && resource.data.studentUid == request.auth.uid;
+      allow delete: if false;
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "name": "Labirin Kehati - Petualangan Keanekaragaman Hayati",
+  "description": "Game petualangan labirin edukasi interaktif untuk mempelajari keanekaragaman hayati (Kehati) Indonesia, tingkatan biodiversitas, flora & fauna endemik, dan konservasi.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
