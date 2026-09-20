@@ -106,6 +106,7 @@ export const ExamEditor: React.FC<Props> = ({ examId, onBack }) => {
 
   const [publishError, setPublishError] = useState<string | null>(null);
   const [goldenPathCount, setGoldenPathCount] = useState<number | null>(null);
+  const [explicitGoldenInput, setExplicitGoldenInput] = useState('');
 
   const handlePublish = async () => {
     if (!drafts || errorCount > 0) return;
@@ -125,7 +126,11 @@ export const ExamEditor: React.FC<Props> = ({ examId, onBack }) => {
         return q as Omit<CustomQuestionDoc, 'id'>;
       });
       await saveExamQuestions(examId, toSave);
-      await publishExam(examId, goldenPathCount ?? undefined);
+      const explicitOrders = explicitGoldenInput
+        .split(',')
+        .map((s) => Number(s.trim()))
+        .filter((n) => Number.isInteger(n) && n > 0);
+      await publishExam(examId, goldenPathCount ?? undefined, explicitOrders.length > 0 ? explicitOrders : undefined);
       setDrafts(null);
       await load();
     } catch (err) {
@@ -137,10 +142,15 @@ export const ExamEditor: React.FC<Props> = ({ examId, onBack }) => {
 
   const handleSaveQuestionEdit = async (questionId: string, patch: Partial<Omit<CustomQuestionDoc, 'id'>>) => {
     await updateExamQuestion(examId, questionId, patch);
-    // Regenerate the maze graph so edited topic/content stays consistent,
-    // keeping the same golden-path length the teacher originally chose.
+    // Regenerate the maze graph, preserving the EXACT same golden-path
+    // question selection as before (by order number), so an edit to one
+    // question's text/image doesn't accidentally reshuffle the whole maze.
     if (exam?.mazeGraph) {
-      await publishExam(examId, exam.mazeGraph.goldenPath.length);
+      const questionsById = Object.fromEntries(savedQuestions.map((q) => [q.id, q]));
+      const goldenOrders = exam.mazeGraph.goldenPath
+        .map((id) => questionsById[id]?.order)
+        .filter((o): o is number => o !== undefined);
+      await publishExam(examId, goldenOrders.length, goldenOrders);
     }
     await load();
   };
@@ -321,6 +331,21 @@ export const ExamEditor: React.FC<Props> = ({ examId, onBack }) => {
                     dari {drafts.length} total soal. Sisanya ({drafts.length - (goldenPathCount ?? Math.max(4, Math.round(drafts.length * 0.6)))} soal) jadi kolam cabang/remedial.
                   </p>
                 </div>
+
+                <div className="mt-3 pt-3 border-t border-stone-200">
+                  <label className="block text-xs font-semibold text-stone-700 mb-1.5">
+                    Atau pilih manual nomor soal untuk Golden Path (opsional)
+                  </label>
+                  <input
+                    value={explicitGoldenInput}
+                    onChange={(e) => setExplicitGoldenInput(e.target.value)}
+                    placeholder="Contoh: 1,3,5,7,9,12,15,18,20,23,25,28,30"
+                    className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm font-mono"
+                  />
+                  <p className="text-xs text-stone-500 mt-1">
+                    Isi nomor soal (#) yang kamu mau jadi jalur utama, pisahkan pakai koma. Kalau diisi, ini akan dipakai (mengabaikan angka jumlah di atas). Kosongkan kalau mau otomatis.
+                  </p>
+                </div>
               </div>
 
               {publishError && (
@@ -410,7 +435,8 @@ export const ExamEditor: React.FC<Props> = ({ examId, onBack }) => {
           ) : (
             <div className="bg-white border border-stone-200 rounded-xl divide-y divide-stone-100">
               {sessions.map((s) => {
-                const pct = s.totalQuestions ? Math.round((s.answeredCount / s.totalQuestions) * 100) : 0;
+                const sessionTarget = exam.mazeGraph?.goldenPath.length || s.totalQuestions;
+                const pct = sessionTarget ? Math.round((s.answeredCount / sessionTarget) * 100) : 0;
                 return (
                   <div key={s.id} className="px-4 py-3 space-y-1.5">
                     <div className="flex items-center justify-between text-sm">
@@ -425,7 +451,7 @@ export const ExamEditor: React.FC<Props> = ({ examId, onBack }) => {
                       <div className="bg-emerald-600 h-2 rounded-full transition-all" style={{ width: `${pct}%` }} />
                     </div>
                     <div className="flex items-center justify-between text-xs text-stone-400">
-                      <span>{s.answeredCount}/{s.totalQuestions} soal</span>
+                      <span>{s.answeredCount}/{sessionTarget} soal</span>
                       {s.violationsCount > 0 && <span className="text-rose-500">{s.violationsCount} pelanggaran</span>}
                     </div>
                   </div>

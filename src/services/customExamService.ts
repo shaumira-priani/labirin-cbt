@@ -165,9 +165,13 @@ export async function getAccessCodeForExamClass(examId: string, className: strin
   return (snap.docs[0].data() as ClassTokenDoc).accessCode;
 }
 
-export async function publishExam(examId: string, goldenPathCount?: number): Promise<void> {
+export async function publishExam(
+  examId: string,
+  goldenPathCount?: number,
+  explicitGoldenOrders?: number[]
+): Promise<void> {
   const questions = await getExamQuestions(examId);
-  const mazeGraph = generateMazeGraph(questions, goldenPathCount);
+  const mazeGraph = generateMazeGraph(questions, goldenPathCount, explicitGoldenOrders);
   await updateDoc(doc(db, 'exams', examId), { status: 'published', mazeGraph });
 }
 
@@ -245,7 +249,7 @@ export async function startSession(
     studentClass,
     status: 'in_progress',
     answeredCount: 0,
-    totalQuestions: exam.totalQuestions,
+    totalQuestions: exam.mazeGraph?.goldenPath.length || exam.totalQuestions,
     score: null,
     startTime: Date.now(),
     endTime: null,

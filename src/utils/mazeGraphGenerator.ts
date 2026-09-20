@@ -28,7 +28,11 @@ export interface MazeGraph {
 const MIN_QUESTIONS_FOR_MAZE = 6;
 const GOLDEN_RATIO = 0.6;
 
-export function generateMazeGraph(questions: CustomQuestionDoc[], goldenPathCountOverride?: number): MazeGraph {
+export function generateMazeGraph(
+  questions: CustomQuestionDoc[],
+  goldenPathCountOverride?: number,
+  explicitGoldenOrders?: number[]
+): MazeGraph {
   const ordered = [...questions].sort((a, b) => a.order - b.order);
 
   if (ordered.length < MIN_QUESTIONS_FOR_MAZE) {
@@ -46,13 +50,28 @@ export function generateMazeGraph(questions: CustomQuestionDoc[], goldenPathCoun
     return { goldenPath: ids, branchPool: ids, wrongAnswerTarget };
   }
 
-  const autoCount = Math.max(4, Math.round(ordered.length * GOLDEN_RATIO));
-  const goldenCount =
-    goldenPathCountOverride && goldenPathCountOverride >= 3 && goldenPathCountOverride <= ordered.length - 2
-      ? goldenPathCountOverride
-      : autoCount;
-  const golden = ordered.slice(0, goldenCount);
-  const branch = ordered.slice(goldenCount);
+  const validExplicit =
+    explicitGoldenOrders && explicitGoldenOrders.length >= 3 && explicitGoldenOrders.length <= ordered.length - 2
+      ? explicitGoldenOrders
+      : null;
+
+  let golden: CustomQuestionDoc[];
+  let branch: CustomQuestionDoc[];
+
+  if (validExplicit) {
+    const orderSet = new Set(validExplicit);
+    golden = ordered.filter((q) => orderSet.has(q.order)).sort((a, b) => a.order - b.order);
+    branch = ordered.filter((q) => !orderSet.has(q.order));
+  } else {
+    const autoCount = Math.max(4, Math.round(ordered.length * GOLDEN_RATIO));
+    const goldenCount =
+      goldenPathCountOverride && goldenPathCountOverride >= 3 && goldenPathCountOverride <= ordered.length - 2
+        ? goldenPathCountOverride
+        : autoCount;
+    golden = ordered.slice(0, goldenCount);
+    branch = ordered.slice(goldenCount);
+  }
+
   const goldenPath = golden.map((q) => q.id);
   const branchPool = branch.map((q) => q.id);
 
