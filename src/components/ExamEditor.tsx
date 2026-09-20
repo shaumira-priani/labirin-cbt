@@ -5,11 +5,13 @@ import {
 } from 'lucide-react';
 import {
   getExam, getExamQuestions, saveExamQuestions, publishExam,
-  getClassTokens, addClassToken, watchExamSessions,
+  getClassTokens, addClassToken, watchExamSessions, updateExamQuestion,
 } from '../services/customExamService';
 import { parseQuestionFile, validateDraft } from '../utils/examFileParser';
 import { uploadImageToCloudinary, validateImageFile } from '../utils/cloudinaryUpload';
 import { RichTextEditor } from './RichTextEditor';
+import { SavedQuestionCard } from './SavedQuestionCard';
+import { exportResultsToExcel } from '../utils/examResultsExport';
 import { downloadExcelTemplate, WORD_TEMPLATE_INSTRUCTIONS } from '../utils/examTemplate';
 import type { CustomExamDoc, ClassTokenDoc, CustomQuestionDoc, DraftQuestion, CustomSessionDoc } from '../types/customExam';
 import type { OptionKey } from '../types/exam';
@@ -125,6 +127,16 @@ export const ExamEditor: React.FC<Props> = ({ examId, onBack }) => {
     }
   };
 
+  const handleSaveQuestionEdit = async (questionId: string, patch: Partial<Omit<CustomQuestionDoc, 'id'>>) => {
+    await updateExamQuestion(examId, questionId, patch);
+    // Regenerate the maze graph so edited topic/content stays consistent,
+    // keeping the same golden-path length the teacher originally chose.
+    if (exam?.mazeGraph) {
+      await publishExam(examId, exam.mazeGraph.goldenPath.length);
+    }
+    await load();
+  };
+
   const handleAddToken = async () => {
     const className = prompt('Nama kelas baru:');
     if (!className?.trim()) return;
@@ -170,9 +182,19 @@ export const ExamEditor: React.FC<Props> = ({ examId, onBack }) => {
       {tab === 'soal' && (
         <div className="space-y-4">
           {savedQuestions.length > 0 && !drafts && (
-            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-center gap-2 text-sm text-emerald-800">
-              <CheckCircle2 className="w-4 h-4 shrink-0" />
-              {savedQuestions.length} soal sudah tersimpan & terbit. Upload file baru di bawah untuk MENAMBAH/MENGGANTI (soal lama akan tetap ada, upload baru ditambahkan).
+            <div className="space-y-3">
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-center gap-2 text-sm text-emerald-800">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                {savedQuestions.length} soal sudah tersimpan & terbit. Upload file baru di bawah untuk MENAMBAH (soal lama tetap ada), atau edit langsung di daftar berikut.
+              </div>
+              <div className="space-y-2 max-h-[28rem] overflow-y-auto pr-1">
+                {savedQuestions
+                  .slice()
+                  .sort((a, b) => a.order - b.order)
+                  .map((q) => (
+                    <SavedQuestionCard key={q.id} question={q} onSave={(patch) => handleSaveQuestionEdit(q.id, patch)} />
+                  ))}
+              </div>
             </div>
           )}
 
@@ -326,7 +348,16 @@ export const ExamEditor: React.FC<Props> = ({ examId, onBack }) => {
 
       {tab === 'monitoring' && (
         <div className="space-y-3">
-          <p className="text-xs text-stone-500 flex items-center gap-1.5"><Radio className="w-3.5 h-3.5 text-emerald-600 animate-pulse" /> Update otomatis, tidak perlu refresh.</p>
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-stone-500 flex items-center gap-1.5"><Radio className="w-3.5 h-3.5 text-emerald-600 animate-pulse" /> Update otomatis, tidak perlu refresh.</p>
+            <button
+              onClick={() => exportResultsToExcel(exam.title, sessions, savedQuestions)}
+              disabled={sessions.length === 0}
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 border border-stone-300 rounded-lg hover:bg-stone-50 disabled:opacity-40"
+            >
+              <Download className="w-3.5 h-3.5" /> Download Rekap Nilai (Excel)
+            </button>
+          </div>
           {monitoringError && (
             <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 shrink-0" /> {monitoringError}

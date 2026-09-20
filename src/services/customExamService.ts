@@ -22,7 +22,6 @@ import {
   where,
   onSnapshot,
   updateDoc,
-  arrayUnion,
   increment,
   type Unsubscribe,
 } from 'firebase/firestore';
@@ -207,6 +206,18 @@ export async function saveExamQuestions(examId: string, questions: Omit<CustomQu
   await updateDoc(doc(db, 'exams', examId), { totalQuestions: questions.length });
 }
 
+export async function updateExamQuestion(
+  examId: string,
+  questionId: string,
+  patch: Partial<Omit<CustomQuestionDoc, 'id'>>
+): Promise<void> {
+  const cleaned: Record<string, unknown> = {};
+  Object.entries(patch).forEach(([k, v]) => {
+    if (v !== undefined) cleaned[k] = v;
+  });
+  await updateDoc(doc(db, 'exams', examId, 'questions', questionId), cleaned);
+}
+
 export async function getExamQuestions(examId: string): Promise<CustomQuestionDoc[]> {
   const snap = await getDocs(collection(db, 'exams', examId, 'questions'));
   return snap.docs.map((d) => d.data() as CustomQuestionDoc).sort((a, b) => a.order - b.order);
@@ -241,17 +252,15 @@ export async function startSession(
   return session;
 }
 
-export async function recordAnswer(
+/** Overwrites the session's full answers array (instead of incremental
+ *  append) so the "Back to previous question" feature can shrink it too. */
+export async function syncSessionAnswers(
   sessionId: string,
-  questionId: string,
-  selectedOption: OptionKey,
-  isCorrect: boolean,
-  isOnGoldenPath: boolean,
-  pointsEarned: number
+  answers: CustomSessionDoc['answers']
 ): Promise<void> {
   await updateDoc(doc(db, 'sessions', sessionId), {
-    answeredCount: increment(1),
-    answers: arrayUnion({ questionId, selectedOption, isCorrect, isOnGoldenPath, pointsEarned, answeredAt: Date.now() }),
+    answers,
+    answeredCount: answers.length,
   });
 }
 

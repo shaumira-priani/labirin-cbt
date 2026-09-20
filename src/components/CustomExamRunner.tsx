@@ -1,11 +1,13 @@
-import React, { useMemo, useState } from 'react';
-import { CheckCircle2, XCircle, PartyPopper } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { PartyPopper, ArrowLeft, Loader2 } from 'lucide-react';
 import type { CustomExamDoc, CustomQuestionDoc, CustomSessionDoc } from '../types/customExam';
 import type { OptionKey } from '../types/exam';
-import { recordAnswer, submitSession } from '../services/customExamService';
+import { syncSessionAnswers, submitSession, recordViolation } from '../services/customExamService';
 import { pointsFor } from '../utils/mazeGraphGenerator';
 import { renderRichContent } from '../utils/richContentRender';
 import { JourneySummary } from './JourneySummary';
+import { CbtSecurityOverlay } from './CbtSecurityOverlay';
+import { enterFullscreen, exitFullscreen } from '../utils/fullscreenHelpers';
 
 interface Props {
   exam: CustomExamDoc;
@@ -22,13 +24,20 @@ export interface AnswerRecord {
   pointsEarned: number;
 }
 
-// Getting a golden-path question WRONG costs this many extra "budget" slots,
-// on top of the 1 slot the question itself already used. This is what makes
-// wandering into remedial questions shrink your total opportunity to score,
-// instead of granting bonus chances the way a flat "answer everything" model
-// would. See JourneySummary for how this shows up to the student afterwards.
+/** Full state needed to re-render a question and resume forward correctly —
+ *  captured before every answer so "Kembali" can restore it exactly. */
+interface Snapshot {
+  questionId: string;
+  arrayPointer: number;
+  remainingBudget: number;
+  isOnGoldenPath: boolean;
+  consecutiveBranchCorrect: number;
+  selectedOption: OptionKey; // what they picked last time, pre-filled on going back
+}
+
 const WRONG_GOLDEN_PENALTY = 2;
 const RECOVERY_STREAK_NEEDED = 2;
+const SAVING_PAUSE_MS = 500; // brief neutral pause, no correctness reveal
 
 export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, onFinished }) => {
   const graph = exam.mazeGraph!;
@@ -36,15 +45,59 @@ export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, on
   const goldenPathTarget = graph.goldenPath.length;
 
   const [currentId, setCurrentId] = useState<string>(graph.goldenPath[0]);
-  const [arrayPointer, setArrayPointer] = useState(0); // next index into graph.goldenPath once back on track
-  const [remainingBudget, setRemainingBudget] = useState(goldenPathTarget); // shrinks faster than 1-per-question when you get lost
+  const [arrayPointer, setArrayPointer] = useState(0);
+  const [remainingBudget, setRemainingBudget] = useState(goldenPathTarget);
   const [isOnGoldenPath, setIsOnGoldenPath] = useState(true);
   const [consecutiveBranchCorrect, setConsecutiveBranchCorrect] = useState(0);
   const [selected, setSelected] = useState<OptionKey | null>(null);
-  const [showFeedback, setShowFeedback] = useState(false);
+  const [submittingAnswer, setSubmittingAnswer] = useState(false);
   const [history, setHistory] = useState<AnswerRecord[]>([]);
+  const [pathStack, setPathStack] = useState<Snapshot[]>([]);
   const [finished, setFinished] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // --- Fullscreen + anti-cheat (mirrors the legacy maze quiz's behaviour) ---
+  const [violationsCount, setViolationsCount] = useState(0);
+  const [securityOpen, setSecurityOpen] = useState(false);
+  const [securityReason, setSecurityReason] = useState<'fullscreen_exit' | 'tab_switched'>('fullscreen_exit');
+  const examActiveRef = useRef(true);
+
+  useEffect(() => {
+    examActiveRef.current = !finished;
+  }, [finished]);
+
+  useEffect(() => {
+    enterFullscreen();
+
+    const handleFullscreenChange = () => {
+      if (examActiveRef.current && !document.fullscreenElement) {
+        setViolationsCount((v) => v + 1);
+        setSecurityReason('fullscreen_exit');
+        setSecurityOpen(true);
+        recordViolation(session.id).catch(() => {});
+      }
+    };
+    const handleVisibilityChange = () => {
+      if (examActiveRef.current && document.hidden) {
+        setViolationsCount((v) => v + 1);
+        setSecurityReason('tab_switched');
+        setSecurityOpen(true);
+        recordViolation(session.id).catch(() => {});
+      }
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      exitFullscreen();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const currentQuestion = questionsById[currentId];
   const totalScore = history.reduce((sum, h) => sum + h.pointsEarned, 0);
@@ -59,7 +112,7 @@ export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, on
   };
 
   const handleSelect = (key: OptionKey) => {
-    if (showFeedback) return;
+    if (submittingAnswer) return;
     setSelected(key);
   };
 
@@ -74,6 +127,17 @@ export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, on
 
   const handleConfirm = async () => {
     if (!selected || !currentQuestion) return;
+
+    // Snapshot the state BEFORE this answer, so "Kembali" can restore it.
+    const snapshot: Snapshot = {
+      questionId: currentQuestion.id,
+      arrayPointer,
+      remainingBudget,
+      isOnGoldenPath,
+      consecutiveBranchCorrect,
+      selectedOption: selected,
+    };
+
     const isCorrect = selected === currentQuestion.correctAnswer;
     const points = pointsFor(isCorrect, isOnGoldenPath);
     const record: AnswerRecord = {
@@ -84,10 +148,11 @@ export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, on
       pointsEarned: points,
     };
 
-    setShowFeedback(true);
-    await recordAnswer(session.id, currentQuestion.id, selected, isCorrect, isOnGoldenPath, points);
+    setSubmittingAnswer(true);
     const newHistory = [...history, record];
     setHistory(newHistory);
+    setPathStack((prev) => [...prev, snapshot]);
+    await syncSessionAnswers(session.id, newHistory.map((h) => ({ ...h, answeredAt: Date.now() })));
 
     setTimeout(async () => {
       let nextId: string | 'SELESAI';
@@ -97,9 +162,6 @@ export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, on
       let nextBudget = remainingBudget;
 
       if (isOnGoldenPath) {
-        // Every golden question consumes 1 slot just by being asked. A WRONG
-        // answer burns extra slots on top — that's the "jatah berkurang"
-        // penalty instead of granting bonus remedial scoring chances.
         nextPointer = arrayPointer + 1;
         nextBudget = remainingBudget - 1 - (isCorrect ? 0 : WRONG_GOLDEN_PENALTY);
         nextConsecutive = 0;
@@ -114,18 +176,13 @@ export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, on
             nextIsOnGolden = true;
             nextId = graph.goldenPath[nextPointer];
           }
+        } else if (budgetExhausted) {
+          nextId = 'SELESAI';
         } else {
-          if (budgetExhausted) {
-            // No budget left to even attempt remediation — exam ends here.
-            nextId = 'SELESAI';
-          } else {
-            nextIsOnGolden = false;
-            nextId = graph.wrongAnswerTarget[currentQuestion.id]?.[selected] ?? graph.branchPool[0];
-          }
+          nextIsOnGolden = false;
+          nextId = graph.wrongAnswerTarget[currentQuestion.id]?.[selected] ?? graph.branchPool[0];
         }
       } else {
-        // Branch/remedial mode — doesn't touch the budget further; recovering
-        // just returns you to wherever the golden path pointer already is.
         if (isCorrect) {
           nextConsecutive = consecutiveBranchCorrect + 1;
           if (nextConsecutive >= RECOVERY_STREAK_NEEDED) {
@@ -154,14 +211,32 @@ export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, on
       setIsOnGoldenPath(nextIsOnGolden);
       setConsecutiveBranchCorrect(nextConsecutive);
       setSelected(null);
-      setShowFeedback(false);
+      setSubmittingAnswer(false);
 
       if (nextId === 'SELESAI') {
         await finishExam(newHistory);
       } else {
         setCurrentId(nextId);
       }
-    }, 1400);
+    }, SAVING_PAUSE_MS);
+  };
+
+  const handleBack = async () => {
+    if (pathStack.length === 0 || submittingAnswer) return;
+    const prevSnapshot = pathStack[pathStack.length - 1];
+    const newHistory = history.slice(0, -1);
+    const newStack = pathStack.slice(0, -1);
+
+    setHistory(newHistory);
+    setPathStack(newStack);
+    setCurrentId(prevSnapshot.questionId);
+    setArrayPointer(prevSnapshot.arrayPointer);
+    setRemainingBudget(prevSnapshot.remainingBudget);
+    setIsOnGoldenPath(prevSnapshot.isOnGoldenPath);
+    setConsecutiveBranchCorrect(prevSnapshot.consecutiveBranchCorrect);
+    setSelected(prevSnapshot.selectedOption);
+
+    await syncSessionAnswers(session.id, newHistory.map((h) => ({ ...h, answeredAt: Date.now() })));
   };
 
   if (finished) {
@@ -182,24 +257,16 @@ export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, on
     return <p className="text-center py-16 text-rose-600 text-sm">Soal tidak ditemukan (ID: {currentId}). Hubungi Guru Pengawas.</p>;
   }
 
-  const progressPct = Math.min(100, ((goldenPathTarget - Math.max(remainingBudget, 0)) / goldenPathTarget) * 100);
-
   return (
     <div className="max-w-xl mx-auto py-8 px-4 space-y-5">
-      <div className="flex items-center justify-between text-xs text-stone-400">
-        <span>{isOnGoldenPath ? `Sisa jatah jalur utama: ${Math.max(remainingBudget, 0)}` : 'Soal Remedial'}</span>
-        <span>Skor sementara: {totalScore}</span>
-      </div>
-      <div className="w-full bg-stone-100 rounded-full h-1.5">
-        <div className={`h-1.5 rounded-full transition-all ${isOnGoldenPath ? 'bg-emerald-600' : 'bg-amber-500'}`}
-          style={{ width: `${progressPct}%` }} />
-      </div>
+      <CbtSecurityOverlay
+        isOpen={securityOpen}
+        violationsCount={violationsCount}
+        reason={securityReason}
+        onReenterFullscreen={() => { enterFullscreen(); setSecurityOpen(false); }}
+      />
 
-      {!isOnGoldenPath && (
-        <p className="text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2">
-          Kamu sedang di jalur remedial. Jawab benar {RECOVERY_STREAK_NEEDED - consecutiveBranchCorrect}x lagi berturut-turut untuk kembali — tapi jatah jalur utamamu sudah berkurang karena tadi salah.
-        </p>
-      )}
+      <div className="text-xs text-stone-400 text-center">Soal ke-{history.length + 1}</div>
 
       <div className="bg-white border border-stone-200 rounded-2xl p-6 space-y-4">
         {currentQuestion.imageUrl && (
@@ -210,30 +277,38 @@ export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, on
         <div className="space-y-2">
           {currentQuestion.options.map((opt) => {
             const isSelected = selected === opt.key;
-            const selectionIsCorrect = selected === currentQuestion.correctAnswer;
-            let style = 'border-stone-200 hover:border-emerald-300';
-            if (showFeedback) {
-              if (isSelected) style = selectionIsCorrect ? 'border-emerald-400 bg-emerald-50' : 'border-rose-400 bg-rose-50';
-            } else if (isSelected) {
-              style = 'border-emerald-500 bg-emerald-50';
-            }
             return (
-              <button key={opt.key} onClick={() => handleSelect(opt.key)} disabled={showFeedback}
-                className={`w-full flex items-center gap-3 text-left px-4 py-3 rounded-xl border text-sm transition-all ${style}`}>
+              <button
+                key={opt.key}
+                onClick={() => handleSelect(opt.key)}
+                disabled={submittingAnswer}
+                className={`w-full flex items-center gap-3 text-left px-4 py-3 rounded-xl border text-sm transition-all ${
+                  isSelected ? 'border-emerald-500 bg-emerald-50' : 'border-stone-200 hover:border-emerald-300'
+                }`}
+              >
                 <span className="font-bold text-stone-500 w-5">{opt.key}</span>
                 <span className="flex-1 text-stone-800">{opt.text}</span>
-                {showFeedback && isSelected && (selectionIsCorrect ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <XCircle className="w-4 h-4 text-rose-500 shrink-0" />)}
               </button>
             );
           })}
         </div>
 
-        {!showFeedback && (
-          <button onClick={handleConfirm} disabled={!selected}
-            className="w-full bg-emerald-700 hover:bg-emerald-800 disabled:opacity-40 text-white font-semibold py-2.5 rounded-xl transition-colors">
-            Jawab
+        <div className="flex gap-2">
+          <button
+            onClick={handleBack}
+            disabled={pathStack.length === 0 || submittingAnswer}
+            className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl border border-stone-300 text-stone-600 text-sm font-semibold disabled:opacity-30 hover:bg-stone-50 transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" /> Kembali
           </button>
-        )}
+          <button
+            onClick={handleConfirm}
+            disabled={!selected || submittingAnswer}
+            className="flex-1 flex items-center justify-center gap-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-40 text-white font-semibold py-2.5 rounded-xl transition-colors"
+          >
+            {submittingAnswer && <Loader2 className="w-4 h-4 animate-spin" />} Jawab
+          </button>
+        </div>
       </div>
     </div>
   );
