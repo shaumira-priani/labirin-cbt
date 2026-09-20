@@ -206,6 +206,10 @@ export async function saveExamQuestions(examId: string, questions: Omit<CustomQu
   await updateDoc(doc(db, 'exams', examId), { totalQuestions: questions.length });
 }
 
+export async function setExamSheetsWebhook(examId: string, url: string): Promise<void> {
+  await updateDoc(doc(db, 'exams', examId), { sheetsWebhookUrl: url });
+}
+
 export async function updateExamQuestion(
   examId: string,
   questionId: string,

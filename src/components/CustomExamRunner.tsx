@@ -5,9 +5,10 @@ import type { OptionKey } from '../types/exam';
 import { syncSessionAnswers, submitSession, recordViolation } from '../services/customExamService';
 import { pointsFor } from '../utils/mazeGraphGenerator';
 import { renderRichContent } from '../utils/richContentRender';
-import { JourneySummary } from './JourneySummary';
+import { JourneyMap } from './JourneyMap';
 import { CbtSecurityOverlay } from './CbtSecurityOverlay';
 import { enterFullscreen, exitFullscreen } from '../utils/fullscreenHelpers';
+import { buildSheetsPayload, sendResultToGoogleSheets } from '../utils/googleSheetsWebhook';
 
 interface Props {
   exam: CustomExamDoc;
@@ -35,7 +36,6 @@ interface Snapshot {
   selectedOption: OptionKey; // what they picked last time, pre-filled on going back
 }
 
-const WRONG_GOLDEN_PENALTY = 2;
 const RECOVERY_STREAK_NEEDED = 2;
 const SAVING_PAUSE_MS = 500; // brief neutral pause, no correctness reveal
 
@@ -118,9 +118,25 @@ export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, on
 
   const finishExam = async (finalHistory: AnswerRecord[]) => {
     const finalScore = finalHistory.reduce((sum, h) => sum + h.pointsEarned, 0);
+    const endTime = Date.now();
     setFinished(true);
     setSubmitting(true);
     await submitSession(session.id, finalScore);
+
+    if (exam.sheetsWebhookUrl) {
+      const lostCount = finalHistory.filter((h) => h.isOnGoldenPath && !h.isCorrect).length;
+      const sessionForPayload: CustomSessionDoc = {
+        ...session,
+        answers: finalHistory.map((h) => ({ ...h, answeredAt: Date.now() })),
+        score: finalScore,
+        endTime,
+        violationsCount,
+        status: 'submitted',
+      };
+      const payload = buildSheetsPayload(exam, sessionForPayload, questions, lostCount);
+      sendResultToGoogleSheets(exam.sheetsWebhookUrl, payload).catch(() => {});
+    }
+
     setSubmitting(false);
     onFinished(finalScore, finalHistory, goldenPathTarget);
   };
@@ -159,50 +175,60 @@ export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, on
       let nextIsOnGolden = isOnGoldenPath;
       let nextConsecutive = consecutiveBranchCorrect;
       let nextPointer = arrayPointer;
-      let nextBudget = remainingBudget;
+
+      // Every question presented — golden OR remedial — consumes 1 slot from
+      // the SAME shared total budget. This guarantees total questions
+      // answered always equals the teacher's target (e.g. exactly 30),
+      // whichever mix of golden/remedial a student ends up taking.
+      const nextBudget = remainingBudget - 1;
 
       if (isOnGoldenPath) {
-        nextPointer = arrayPointer + 1;
-        nextBudget = remainingBudget - 1 - (isCorrect ? 0 : WRONG_GOLDEN_PENALTY);
         nextConsecutive = 0;
-
-        const budgetExhausted = nextBudget <= 0;
-        const arrayExhausted = nextPointer >= graph.goldenPath.length;
-
         if (isCorrect) {
-          if (budgetExhausted || arrayExhausted) {
+          nextPointer = arrayPointer + 1;
+          const arrayExhausted = nextPointer >= graph.goldenPath.length;
+          if (nextBudget <= 0 || arrayExhausted) {
             nextId = 'SELESAI';
           } else {
             nextIsOnGolden = true;
             nextId = graph.goldenPath[nextPointer];
           }
-        } else if (budgetExhausted) {
-          nextId = 'SELESAI';
         } else {
-          nextIsOnGolden = false;
-          nextId = graph.wrongAnswerTarget[currentQuestion.id]?.[selected] ?? graph.branchPool[0];
+          nextPointer = arrayPointer + 1; // resume from here once recovered
+          if (nextBudget <= 0) {
+            nextId = 'SELESAI';
+          } else {
+            nextIsOnGolden = false;
+            nextId = graph.wrongAnswerTarget[currentQuestion.id]?.[selected] ?? graph.branchPool[0];
+          }
         }
       } else {
+        nextPointer = arrayPointer;
         if (isCorrect) {
           nextConsecutive = consecutiveBranchCorrect + 1;
           if (nextConsecutive >= RECOVERY_STREAK_NEEDED) {
             nextConsecutive = 0;
-            const budgetExhausted = remainingBudget <= 0;
             const arrayExhausted = arrayPointer >= graph.goldenPath.length;
-            if (budgetExhausted || arrayExhausted) {
+            if (nextBudget <= 0 || arrayExhausted) {
               nextId = 'SELESAI';
             } else {
               nextIsOnGolden = true;
               nextId = graph.goldenPath[arrayPointer];
             }
+          } else if (nextBudget <= 0) {
+            nextId = 'SELESAI';
           } else {
             nextIsOnGolden = false;
             nextId = pickAnotherBranchQuestion(currentQuestion.id);
           }
         } else {
           nextConsecutive = 0;
-          nextIsOnGolden = false;
-          nextId = graph.wrongAnswerTarget[currentQuestion.id]?.[selected] ?? pickAnotherBranchQuestion(currentQuestion.id);
+          if (nextBudget <= 0) {
+            nextId = 'SELESAI';
+          } else {
+            nextIsOnGolden = false;
+            nextId = graph.wrongAnswerTarget[currentQuestion.id]?.[selected] ?? pickAnotherBranchQuestion(currentQuestion.id);
+          }
         }
       }
 
@@ -247,7 +273,7 @@ export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, on
         <p className="text-stone-500 text-sm">{submitting ? 'Menyimpan hasil...' : 'Hasil sudah tersimpan.'}</p>
         <p className="text-3xl font-bold text-emerald-700">{totalScore} poin</p>
         <div className="bg-white border border-stone-200 rounded-2xl p-5">
-          <JourneySummary history={history} goldenPathTarget={goldenPathTarget} />
+          <JourneyMap history={history} goldenPathTarget={goldenPathTarget} />
         </div>
       </div>
     );

@@ -30,6 +30,7 @@ export interface CustomExamDoc {
   status: ExamStatus;
   createdAt: number;
   mazeGraph?: MazeGraph; // generated automatically when the teacher publishes
+  sheetsWebhookUrl?: string; // Google Apps Script Web App URL, for live results sync
 }
 
 /** exams/{examId}/classTokens/{tokenId} — one access code per class */

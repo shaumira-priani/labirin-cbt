@@ -5,13 +5,14 @@ import {
 } from 'lucide-react';
 import {
   getExam, getExamQuestions, saveExamQuestions, publishExam,
-  getClassTokens, addClassToken, watchExamSessions, updateExamQuestion,
+  getClassTokens, addClassToken, watchExamSessions, updateExamQuestion, setExamSheetsWebhook,
 } from '../services/customExamService';
 import { parseQuestionFile, validateDraft } from '../utils/examFileParser';
 import { uploadImageToCloudinary, validateImageFile } from '../utils/cloudinaryUpload';
 import { RichTextEditor } from './RichTextEditor';
 import { SavedQuestionCard } from './SavedQuestionCard';
 import { exportResultsToExcel } from '../utils/examResultsExport';
+import { APPS_SCRIPT_TEMPLATE } from '../utils/googleSheetsWebhook';
 import { downloadExcelTemplate, WORD_TEMPLATE_INSTRUCTIONS } from '../utils/examTemplate';
 import type { CustomExamDoc, ClassTokenDoc, CustomQuestionDoc, DraftQuestion, CustomSessionDoc } from '../types/customExam';
 import type { OptionKey } from '../types/exam';
@@ -36,6 +37,9 @@ export const ExamEditor: React.FC<Props> = ({ examId, onBack }) => {
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [sessions, setSessions] = useState<CustomSessionDoc[]>([]);
   const [monitoringError, setMonitoringError] = useState<string | null>(null);
+  const [webhookInput, setWebhookInput] = useState('');
+  const [webhookSaved, setWebhookSaved] = useState(false);
+  const [showAppsScript, setShowAppsScript] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -49,6 +53,10 @@ export const ExamEditor: React.FC<Props> = ({ examId, onBack }) => {
   };
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [examId]);
+
+  useEffect(() => {
+    if (exam?.sheetsWebhookUrl) setWebhookInput(exam.sheetsWebhookUrl);
+  }, [exam]);
 
   useEffect(() => {
     if (tab !== 'monitoring' || !exam) return;
@@ -134,6 +142,13 @@ export const ExamEditor: React.FC<Props> = ({ examId, onBack }) => {
     if (exam?.mazeGraph) {
       await publishExam(examId, exam.mazeGraph.goldenPath.length);
     }
+    await load();
+  };
+
+  const handleSaveWebhook = async () => {
+    await setExamSheetsWebhook(examId, webhookInput.trim());
+    setWebhookSaved(true);
+    setTimeout(() => setWebhookSaved(false), 2000);
     await load();
   };
 
@@ -348,6 +363,33 @@ export const ExamEditor: React.FC<Props> = ({ examId, onBack }) => {
 
       {tab === 'monitoring' && (
         <div className="space-y-3">
+          <div className="bg-white border border-stone-200 rounded-xl p-4 space-y-2">
+            <p className="text-xs font-semibold text-stone-700">Sinkron Otomatis ke Google Sheets (opsional)</p>
+            <p className="text-[11px] text-stone-500">
+              Hasil tiap murid akan otomatis terkirim ke Google Sheet-mu sendiri begitu mereka selesai ujian — tanpa perlu download apapun.{' '}
+              <button onClick={() => setShowAppsScript((s) => !s)} className="text-emerald-700 underline">
+                {showAppsScript ? 'Sembunyikan cara setup' : 'Lihat cara setup (1x saja)'}
+              </button>
+            </p>
+            {showAppsScript && (
+              <div className="bg-stone-900 text-stone-100 text-[11px] rounded-lg p-3 space-y-2">
+                <p className="text-stone-300">Copy kode ini, ikuti instruksi di komentar paling atas:</p>
+                <textarea readOnly value={APPS_SCRIPT_TEMPLATE} className="w-full h-32 bg-stone-950 text-emerald-300 font-mono text-[10px] p-2 rounded" onClick={(e) => (e.target as HTMLTextAreaElement).select()} />
+              </div>
+            )}
+            <div className="flex gap-2">
+              <input
+                value={webhookInput}
+                onChange={(e) => setWebhookInput(e.target.value)}
+                placeholder="https://script.google.com/macros/s/xxx/exec"
+                className="flex-1 px-3 py-2 border border-stone-300 rounded-lg text-xs"
+              />
+              <button onClick={handleSaveWebhook} className="px-3 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg whitespace-nowrap">
+                {webhookSaved ? 'Tersimpan ✓' : 'Simpan'}
+              </button>
+            </div>
+          </div>
+
           <div className="flex items-center justify-between">
             <p className="text-xs text-stone-500 flex items-center gap-1.5"><Radio className="w-3.5 h-3.5 text-emerald-600 animate-pulse" /> Update otomatis, tidak perlu refresh.</p>
             <button
@@ -355,7 +397,7 @@ export const ExamEditor: React.FC<Props> = ({ examId, onBack }) => {
               disabled={sessions.length === 0}
               className="flex items-center gap-1.5 text-xs px-3 py-1.5 border border-stone-300 rounded-lg hover:bg-stone-50 disabled:opacity-40"
             >
-              <Download className="w-3.5 h-3.5" /> Download Rekap Nilai (Excel)
+              <Download className="w-3.5 h-3.5" /> Atau Download Excel
             </button>
           </div>
           {monitoringError && (

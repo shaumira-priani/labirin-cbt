@@ -7,7 +7,7 @@ import {
 import type { CustomExamDoc, CustomQuestionDoc, CustomSessionDoc } from '../types/customExam';
 import { CustomExamRunner } from './CustomExamRunner';
 import type { AnswerRecord } from './CustomExamRunner';
-import { JourneySummary } from './JourneySummary';
+import { JourneyMap } from './JourneyMap';
 
 interface Props {
   onBack: () => void;
@@ -126,7 +126,7 @@ export const StudentExamPicker: React.FC<Props> = ({ onBack }) => {
         <p className="text-stone-500 text-sm">Skor akhir kamu: <span className="font-bold text-emerald-700">{finalScore}</span></p>
         <p className="text-xs text-stone-400">Hasil sudah dikirim ke Guru Pengawas.</p>
         <div className="bg-white border border-stone-200 rounded-2xl p-5">
-          <JourneySummary history={finalHistory} goldenPathTarget={finalGoldenTarget} />
+          <JourneyMap history={finalHistory} goldenPathTarget={finalGoldenTarget} />
         </div>
       </div>
     );
