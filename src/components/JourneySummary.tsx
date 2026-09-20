@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { CheckCircle2, XCircle, RotateCcw, Flag } from 'lucide-react';
 
-interface AnswerRecord {
+export interface AnswerRecord {
   questionId: string;
   isCorrect: boolean;
   isOnGoldenPath: boolean;
@@ -10,18 +10,17 @@ interface AnswerRecord {
 
 interface Props {
   history: AnswerRecord[];
-  goldenPathLength: number;
+  /** The teacher's target golden-path length before any penalties shrank it. */
+  goldenPathTarget: number;
 }
 
 interface GoldenStep {
-  stepNumber: number; // 1-based position in Golden Path
+  stepNumber: number;
   correct: boolean;
-  detourAttempts: number; // how many branch questions were needed before recovering (0 if answered correctly first try)
+  detourAttempts: number;
   detourCorrectCount: number;
 }
 
-/** Groups the flat answer history into per-golden-step entries, counting
- *  how many remedial detour questions were needed after each wrong answer. */
 function buildSteps(history: AnswerRecord[]): GoldenStep[] {
   const steps: GoldenStep[] = [];
   let stepNumber = 0;
@@ -30,9 +29,7 @@ function buildSteps(history: AnswerRecord[]): GoldenStep[] {
 
   for (const h of history) {
     if (h.isOnGoldenPath) {
-      // If this golden entry follows a wrong golden answer, it means we've
-      // recovered — attach the accumulated detour stats to that earlier step.
-      if (steps.length > 0 && !steps[steps.length - 1].correct && pendingDetourAttempts >= 0 && steps[steps.length - 1].detourAttempts === 0 && pendingDetourAttempts > 0) {
+      if (steps.length > 0 && !steps[steps.length - 1].correct && steps[steps.length - 1].detourAttempts === 0 && pendingDetourAttempts > 0) {
         steps[steps.length - 1].detourAttempts = pendingDetourAttempts;
         steps[steps.length - 1].detourCorrectCount = pendingDetourCorrect;
       }
@@ -45,7 +42,6 @@ function buildSteps(history: AnswerRecord[]): GoldenStep[] {
       if (h.isCorrect) pendingDetourCorrect++;
     }
   }
-  // Trailing detour with no recovery yet (shouldn't normally happen once exam is "finished")
   if (steps.length > 0 && !steps[steps.length - 1].correct && pendingDetourAttempts > 0) {
     steps[steps.length - 1].detourAttempts = pendingDetourAttempts;
     steps[steps.length - 1].detourCorrectCount = pendingDetourCorrect;
@@ -54,10 +50,11 @@ function buildSteps(history: AnswerRecord[]): GoldenStep[] {
   return steps;
 }
 
-export const JourneySummary: React.FC<Props> = ({ history, goldenPathLength }) => {
+export const JourneySummary: React.FC<Props> = ({ history, goldenPathTarget }) => {
   const steps = useMemo(() => buildSteps(history), [history]);
   const lostSteps = steps.filter((s) => !s.correct);
   const totalDetourQuestions = history.filter((h) => !h.isOnGoldenPath).length;
+  const shortfall = goldenPathTarget - steps.length;
 
   return (
     <div className="text-left space-y-4">
@@ -89,8 +86,8 @@ export const JourneySummary: React.FC<Props> = ({ history, goldenPathLength }) =
 
       <div className="grid grid-cols-3 gap-2 text-center">
         <div className="bg-stone-50 rounded-lg py-2">
-          <p className="text-lg font-bold text-stone-800">{goldenPathLength}</p>
-          <p className="text-[11px] text-stone-500">Soal Jalur Utama</p>
+          <p className="text-lg font-bold text-stone-800">{steps.length}</p>
+          <p className="text-[11px] text-stone-500">Soal Jalur Utama Ditempuh</p>
         </div>
         <div className="bg-stone-50 rounded-lg py-2">
           <p className="text-lg font-bold text-rose-500">{lostSteps.length}</p>
@@ -101,6 +98,12 @@ export const JourneySummary: React.FC<Props> = ({ history, goldenPathLength }) =
           <p className="text-[11px] text-stone-500">Soal Remedial Dijalani</p>
         </div>
       </div>
+
+      {shortfall > 0 && (
+        <p className="text-xs text-stone-500 bg-stone-50 border border-stone-100 rounded-lg px-3 py-2">
+          Target awal jalur utama ada <strong>{goldenPathTarget}</strong> soal, tapi karena tersesat {lostSteps.length}x, jatahmu berkurang jadi cuma sempat menempuh <strong>{steps.length}</strong> soal jalur utama. Makin jarang tersesat, makin banyak soal jalur utama yang bisa dikerjakan (dan makin tinggi skor maksimalnya).
+        </p>
+      )}
 
       {lostSteps.length > 0 ? (
         <div className="space-y-1.5">

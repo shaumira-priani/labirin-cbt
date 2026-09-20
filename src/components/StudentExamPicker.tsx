@@ -6,6 +6,8 @@ import {
 } from '../services/customExamService';
 import type { CustomExamDoc, CustomQuestionDoc, CustomSessionDoc } from '../types/customExam';
 import { CustomExamRunner } from './CustomExamRunner';
+import type { AnswerRecord } from './CustomExamRunner';
+import { JourneySummary } from './JourneySummary';
 
 interface Props {
   onBack: () => void;
@@ -31,6 +33,8 @@ export const StudentExamPicker: React.FC<Props> = ({ onBack }) => {
   const [questions, setQuestions] = useState<CustomQuestionDoc[]>([]);
   const [session, setSession] = useState<CustomSessionDoc | null>(null);
   const [finalScore, setFinalScore] = useState<number | null>(null);
+  const [finalHistory, setFinalHistory] = useState<AnswerRecord[]>([]);
+  const [finalGoldenTarget, setFinalGoldenTarget] = useState(0);
 
   useEffect(() => {
     signInStudentAnonymously().catch(() => {});
@@ -105,17 +109,25 @@ export const StudentExamPicker: React.FC<Props> = ({ onBack }) => {
         exam={exam}
         questions={questions}
         session={session}
-        onFinished={(score) => { setFinalScore(score); setStage('done'); }}
+        onFinished={(score, history, goldenTarget) => {
+          setFinalScore(score);
+          setFinalHistory(history);
+          setFinalGoldenTarget(goldenTarget);
+          setStage('done');
+        }}
       />
     );
   }
 
   if (stage === 'done') {
     return (
-      <div className="max-w-lg mx-auto py-16 text-center space-y-3">
+      <div className="max-w-lg mx-auto py-16 px-4 text-center space-y-5">
         <h2 className="text-xl font-bold text-stone-900">Terima kasih, {studentName}!</h2>
         <p className="text-stone-500 text-sm">Skor akhir kamu: <span className="font-bold text-emerald-700">{finalScore}</span></p>
         <p className="text-xs text-stone-400">Hasil sudah dikirim ke Guru Pengawas.</p>
+        <div className="bg-white border border-stone-200 rounded-2xl p-5">
+          <JourneySummary history={finalHistory} goldenPathTarget={finalGoldenTarget} />
+        </div>
       </div>
     );
   }
