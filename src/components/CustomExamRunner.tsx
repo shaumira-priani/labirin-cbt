@@ -5,6 +5,7 @@ import type { OptionKey } from '../types/exam';
 import { recordAnswer, submitSession } from '../services/customExamService';
 import { pointsFor } from '../utils/mazeGraphGenerator';
 import { renderRichContent } from '../utils/richContentRender';
+import { JourneySummary } from './JourneySummary';
 
 interface Props {
   exam: CustomExamDoc;
@@ -119,11 +120,14 @@ export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, on
 
   if (finished) {
     return (
-      <div className="max-w-lg mx-auto py-16 text-center space-y-4">
+      <div className="max-w-lg mx-auto py-16 px-4 text-center space-y-5">
         <PartyPopper className="w-12 h-12 text-emerald-600 mx-auto" />
         <h2 className="text-xl font-bold text-stone-900">Ujian Selesai!</h2>
         <p className="text-stone-500 text-sm">{submitting ? 'Menyimpan hasil...' : 'Hasil sudah tersimpan.'}</p>
         <p className="text-3xl font-bold text-emerald-700">{totalScore} poin</p>
+        <div className="bg-white border border-stone-200 rounded-2xl p-5">
+          <JourneySummary history={history} goldenPathLength={graph.goldenPath.length} />
+        </div>
       </div>
     );
   }
@@ -158,11 +162,10 @@ export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, on
         <div className="space-y-2">
           {currentQuestion.options.map((opt) => {
             const isSelected = selected === opt.key;
-            const isCorrectOpt = opt.key === currentQuestion.correctAnswer;
+            const selectionIsCorrect = selected === currentQuestion.correctAnswer;
             let style = 'border-stone-200 hover:border-emerald-300';
             if (showFeedback) {
-              if (isCorrectOpt) style = 'border-emerald-400 bg-emerald-50';
-              else if (isSelected) style = 'border-rose-400 bg-rose-50';
+              if (isSelected) style = selectionIsCorrect ? 'border-emerald-400 bg-emerald-50' : 'border-rose-400 bg-rose-50';
             } else if (isSelected) {
               style = 'border-emerald-500 bg-emerald-50';
             }
@@ -171,16 +174,11 @@ export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, on
                 className={`w-full flex items-center gap-3 text-left px-4 py-3 rounded-xl border text-sm transition-all ${style}`}>
                 <span className="font-bold text-stone-500 w-5">{opt.key}</span>
                 <span className="flex-1 text-stone-800">{opt.text}</span>
-                {showFeedback && isCorrectOpt && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
-                {showFeedback && isSelected && !isCorrectOpt && <XCircle className="w-4 h-4 text-rose-500 shrink-0" />}
+                {showFeedback && isSelected && (selectionIsCorrect ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <XCircle className="w-4 h-4 text-rose-500 shrink-0" />)}
               </button>
             );
           })}
         </div>
-
-        {showFeedback && currentQuestion.explanation && (
-          <p className="text-xs text-stone-500 bg-stone-50 rounded-lg px-3 py-2 border border-stone-100" dangerouslySetInnerHTML={{ __html: renderRichContent(currentQuestion.explanation) }} />
-        )}
 
         {!showFeedback && (
           <button onClick={handleConfirm} disabled={!selected}

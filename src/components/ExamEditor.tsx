@@ -33,7 +33,7 @@ export const ExamEditor: React.FC<Props> = ({ examId, onBack }) => {
   const [tab, setTab] = useState<Tab>('soal');
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [sessions, setSessions] = useState<CustomSessionDoc[]>([]);
-  const [publishError, setPublishError] = useState<string | null>(null);
+  const [monitoringError, setMonitoringError] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -49,10 +49,16 @@ export const ExamEditor: React.FC<Props> = ({ examId, onBack }) => {
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [examId]);
 
   useEffect(() => {
-    if (tab !== 'monitoring') return;
-    const unsub = watchExamSessions(examId, setSessions);
+    if (tab !== 'monitoring' || !exam) return;
+    setMonitoringError(null);
+    const unsub = watchExamSessions(
+      examId,
+      exam.teacherId,
+      setSessions,
+      (err) => setMonitoringError(err.message)
+    );
     return () => unsub();
-  }, [tab, examId]);
+  }, [tab, examId, exam]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -88,6 +94,9 @@ export const ExamEditor: React.FC<Props> = ({ examId, onBack }) => {
 
   const errorCount = drafts?.filter((d) => d.error).length ?? 0;
 
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const [goldenPathCount, setGoldenPathCount] = useState<number | null>(null);
+
   const handlePublish = async () => {
     if (!drafts || errorCount > 0) return;
     setPublishing(true);
@@ -106,7 +115,7 @@ export const ExamEditor: React.FC<Props> = ({ examId, onBack }) => {
         return q as Omit<CustomQuestionDoc, 'id'>;
       });
       await saveExamQuestions(examId, toSave);
-      await publishExam(examId);
+      await publishExam(examId, goldenPathCount ?? undefined);
       setDrafts(null);
       await load();
     } catch (err) {
@@ -258,6 +267,25 @@ export const ExamEditor: React.FC<Props> = ({ examId, onBack }) => {
                 ))}
               </div>
 
+              <div className="bg-stone-50 border border-stone-200 rounded-xl p-4">
+                <label className="block text-xs font-semibold text-stone-700 mb-1.5">
+                  Jumlah soal di Golden Path (jalur utama)
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    min={3}
+                    max={Math.max(3, drafts.length - 2)}
+                    value={goldenPathCount ?? Math.max(4, Math.round(drafts.length * 0.6))}
+                    onChange={(e) => setGoldenPathCount(Number(e.target.value))}
+                    className="w-24 px-3 py-2 border border-stone-300 rounded-lg text-sm"
+                  />
+                  <p className="text-xs text-stone-500">
+                    dari {drafts.length} total soal. Sisanya ({drafts.length - (goldenPathCount ?? Math.max(4, Math.round(drafts.length * 0.6)))} soal) jadi kolam cabang/remedial.
+                  </p>
+                </div>
+              </div>
+
               {publishError && (
                 <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4 shrink-0" /> {publishError}
@@ -299,6 +327,11 @@ export const ExamEditor: React.FC<Props> = ({ examId, onBack }) => {
       {tab === 'monitoring' && (
         <div className="space-y-3">
           <p className="text-xs text-stone-500 flex items-center gap-1.5"><Radio className="w-3.5 h-3.5 text-emerald-600 animate-pulse" /> Update otomatis, tidak perlu refresh.</p>
+          {monitoringError && (
+            <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" /> {monitoringError}
+            </p>
+          )}
           {sessions.length === 0 ? (
             <p className="text-center text-stone-400 py-10 text-sm">Belum ada murid yang mengerjakan.</p>
           ) : (

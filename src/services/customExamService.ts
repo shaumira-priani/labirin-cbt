@@ -166,9 +166,9 @@ export async function getAccessCodeForExamClass(examId: string, className: strin
   return (snap.docs[0].data() as ClassTokenDoc).accessCode;
 }
 
-export async function publishExam(examId: string): Promise<void> {
+export async function publishExam(examId: string, goldenPathCount?: number): Promise<void> {
   const questions = await getExamQuestions(examId);
-  const mazeGraph = generateMazeGraph(questions);
+  const mazeGraph = generateMazeGraph(questions, goldenPathCount);
   await updateDoc(doc(db, 'exams', examId), { status: 'published', mazeGraph });
 }
 
@@ -263,8 +263,15 @@ export async function submitSession(sessionId: string, score: number): Promise<v
   await updateDoc(doc(db, 'sessions', sessionId), { status: 'submitted', score, endTime: Date.now() });
 }
 
-export function watchExamSessions(examId: string, onChange: (sessions: CustomSessionDoc[]) => void): Unsubscribe {
-  return onSnapshot(query(collection(db, 'sessions'), where('examId', '==', examId)), (snap) => {
-    onChange(snap.docs.map((d) => d.data() as CustomSessionDoc));
-  });
+export function watchExamSessions(
+  examId: string,
+  teacherId: string,
+  onChange: (sessions: CustomSessionDoc[]) => void,
+  onError?: (error: Error) => void
+): Unsubscribe {
+  return onSnapshot(
+    query(collection(db, 'sessions'), where('examId', '==', examId), where('teacherId', '==', teacherId)),
+    (snap) => onChange(snap.docs.map((d) => d.data() as CustomSessionDoc)),
+    (error) => onError?.(error)
+  );
 }
