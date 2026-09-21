@@ -331,7 +331,7 @@ export const ExamEditor: React.FC<Props> = ({ examId, onBack }) => {
                     className="w-24 px-3 py-2 border border-stone-300 rounded-lg text-sm"
                   />
                   <p className="text-xs text-stone-500">
-                    dari {drafts.length} total soal. Sisanya ({drafts.length - (goldenPathCount ?? Math.max(4, Math.round(drafts.length * 0.6)))} soal) jadi kolam cabang/remedial.
+                    dari {drafts.length} total soal. Sisanya ({drafts.length - (goldenPathCount ?? Math.max(4, Math.round(drafts.length * 0.6)))} soal) jadi kolam soal cabang.
                   </p>
                 </div>
 

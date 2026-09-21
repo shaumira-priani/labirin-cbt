@@ -22,6 +22,7 @@ import {
   where,
   onSnapshot,
   updateDoc,
+  deleteDoc,
   increment,
   type Unsubscribe,
 } from 'firebase/firestore';
@@ -158,11 +159,34 @@ export async function getPublishedExamOptions(): Promise<
 /** Looks up the access code for one specific exam + class combination
  *  (used by the picker flow to validate the token the student types in). */
 export async function getAccessCodeForExamClass(examId: string, className: string): Promise<string | null> {
-  const snap = await getDocs(
-    query(collection(db, 'exams', examId, 'classTokens'), where('className', '==', className))
-  );
-  if (snap.empty) return null;
-  return (snap.docs[0].data() as ClassTokenDoc).accessCode;
+  const snap = await getDocs(collection(db, 'exams', examId, 'classTokens'));
+  const match = snap.docs
+    .map((d) => d.data() as ClassTokenDoc)
+    .find((t) => t.className.trim().toLowerCase() === className.trim().toLowerCase());
+  return match?.accessCode ?? null;
+}
+
+export async function updateExamMeta(
+  examId: string,
+  patch: Partial<Pick<CustomExamDoc, 'title' | 'subject' | 'durationMinutes'>>
+): Promise<void> {
+  await updateDoc(doc(db, 'exams', examId), patch);
+}
+
+export async function setExamStatus(examId: string, status: 'draft' | 'published' | 'closed'): Promise<void> {
+  await updateDoc(doc(db, 'exams', examId), { status });
+}
+
+export async function deleteExamCompletely(examId: string): Promise<void> {
+  const [questionsSnap, tokensSnap] = await Promise.all([
+    getDocs(collection(db, 'exams', examId, 'questions')),
+    getDocs(collection(db, 'exams', examId, 'classTokens')),
+  ]);
+  await Promise.all([
+    ...questionsSnap.docs.map((d) => deleteDoc(d.ref)),
+    ...tokensSnap.docs.map((d) => deleteDoc(d.ref)),
+  ]);
+  await deleteDoc(doc(db, 'exams', examId));
 }
 
 export async function publishExam(

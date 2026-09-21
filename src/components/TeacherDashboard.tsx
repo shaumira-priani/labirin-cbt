@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { LogOut, Plus, FileText, Loader2, ChevronRight } from 'lucide-react';
+import { LogOut, Plus, FileText, Loader2, ChevronRight, Pencil, Trash2, Check, X, EyeOff, Eye } from 'lucide-react';
 import type { User } from 'firebase/auth';
-import { getExamsForTeacher, createExam, logoutTeacher } from '../services/customExamService';
+import { getExamsForTeacher, createExam, logoutTeacher, updateExamMeta, setExamStatus, deleteExamCompletely } from '../services/customExamService';
 import type { CustomExamDoc } from '../types/customExam';
 import { SUBJECTS, CLASS_NAMES } from '../data/schoolRoster';
 import { ExamEditor } from './ExamEditor';
@@ -138,28 +138,97 @@ export const TeacherDashboard: React.FC<Props> = ({ user, onLoggedOut }) => {
           <p className="text-center text-stone-400 py-10 text-sm">Belum ada ujian. Buat ujian pertamamu di atas.</p>
         ) : (
           exams.map((exam) => (
-            <button
+            <ExamCard
               key={exam.id}
-              onClick={() => setOpenExamId(exam.id)}
-              className="w-full flex items-center justify-between bg-white border border-stone-200 rounded-xl p-4 hover:border-emerald-300 hover:shadow-sm transition-all text-left"
-            >
-              <div className="flex items-center gap-3">
-                <FileText className="w-5 h-5 text-emerald-700 shrink-0" />
-                <div>
-                  <p className="font-semibold text-stone-900 text-sm">{exam.title}</p>
-                  <p className="text-xs text-stone-500">{exam.subject} &middot; {exam.totalQuestions} soal &middot; {exam.durationMinutes} menit</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
-                  exam.status === 'published' ? 'bg-emerald-100 text-emerald-800' : exam.status === 'closed' ? 'bg-stone-200 text-stone-600' : 'bg-amber-100 text-amber-800'
-                }`}>
-                  {exam.status === 'published' ? 'Terbit' : exam.status === 'closed' ? 'Ditutup' : 'Draft'}
-                </span>
-                <ChevronRight className="w-4 h-4 text-stone-400" />
-              </div>
-            </button>
+              exam={exam}
+              onOpen={() => setOpenExamId(exam.id)}
+              onChanged={refreshExams}
+            />
           ))
+        )}
+      </div>
+    </div>
+  );
+};
+
+const ExamCard: React.FC<{ exam: CustomExamDoc; onOpen: () => void; onChanged: () => void }> = ({ exam, onOpen, onChanged }) => {
+  const [renaming, setRenaming] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(exam.title);
+  const [busy, setBusy] = useState(false);
+
+  const handleSaveRename = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!titleDraft.trim()) return;
+    setBusy(true);
+    await updateExamMeta(exam.id, { title: titleDraft.trim() });
+    setBusy(false);
+    setRenaming(false);
+    onChanged();
+  };
+
+  const handleToggleStatus = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setBusy(true);
+    await setExamStatus(exam.id, exam.status === 'published' ? 'draft' : 'published');
+    setBusy(false);
+    onChanged();
+  };
+
+  const handleDelete = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm(`Hapus ujian "${exam.title}" beserta semua soal & kode kelasnya? Ini tidak bisa dibatalkan.`)) return;
+    setBusy(true);
+    await deleteExamCompletely(exam.id);
+    setBusy(false);
+    onChanged();
+  };
+
+  return (
+    <div className="bg-white border border-stone-200 rounded-xl p-4 hover:border-emerald-300 hover:shadow-sm transition-all">
+      <div className="flex items-center justify-between gap-3">
+        <button onClick={onOpen} className="flex items-center gap-3 flex-1 text-left min-w-0">
+          <FileText className="w-5 h-5 text-emerald-700 shrink-0" />
+          <div className="min-w-0">
+            {renaming ? (
+              <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                <input
+                  value={titleDraft}
+                  onChange={(e) => setTitleDraft(e.target.value)}
+                  className="text-sm border border-stone-300 rounded-lg px-2 py-1 w-full"
+                  autoFocus
+                />
+                <button onClick={handleSaveRename} disabled={busy} className="text-emerald-700 shrink-0"><Check className="w-4 h-4" /></button>
+                <button onClick={(e) => { e.stopPropagation(); setRenaming(false); setTitleDraft(exam.title); }} className="text-stone-400 shrink-0"><X className="w-4 h-4" /></button>
+              </div>
+            ) : (
+              <>
+                <p className="font-semibold text-stone-900 text-sm truncate">{exam.title}</p>
+                <p className="text-xs text-stone-500">{exam.subject} &middot; {exam.totalQuestions} soal &middot; {exam.durationMinutes} menit</p>
+              </>
+            )}
+          </div>
+        </button>
+
+        {!renaming && (
+          <div className="flex items-center gap-1 shrink-0">
+            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
+              exam.status === 'published' ? 'bg-emerald-100 text-emerald-800' : exam.status === 'closed' ? 'bg-stone-200 text-stone-600' : 'bg-amber-100 text-amber-800'
+            }`}>
+              {exam.status === 'published' ? 'Terbit' : exam.status === 'closed' ? 'Ditutup' : 'Draft'}
+            </span>
+            <button onClick={(e) => { e.stopPropagation(); setRenaming(true); }} disabled={busy} title="Ganti nama" className="p-1.5 text-stone-400 hover:text-emerald-700 rounded-lg hover:bg-stone-50">
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+            {exam.totalQuestions > 0 && (
+              <button onClick={handleToggleStatus} disabled={busy} title={exam.status === 'published' ? 'Sembunyikan dari siswa (jadi Draft)' : 'Terbitkan ke siswa'} className="p-1.5 text-stone-400 hover:text-amber-700 rounded-lg hover:bg-stone-50">
+                {exam.status === 'published' ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              </button>
+            )}
+            <button onClick={handleDelete} disabled={busy} title="Hapus ujian" className="p-1.5 text-stone-400 hover:text-rose-600 rounded-lg hover:bg-stone-50">
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+            <ChevronRight onClick={onOpen} className="w-4 h-4 text-stone-400 cursor-pointer" />
+          </div>
         )}
       </div>
     </div>

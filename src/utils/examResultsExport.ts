@@ -34,7 +34,7 @@ export function exportResultsToExcel(
         Pertanyaan: q ? stripHtml(q.question).slice(0, 200) : a.questionId,
         'Jawaban Dipilih': a.selectedOption,
         'Benar/Salah': a.isCorrect ? 'Benar' : 'Salah',
-        Jalur: a.isOnGoldenPath ? 'Utama' : 'Remedial',
+        Jalur: a.isOnGoldenPath ? 'Utama' : 'Cabang',
         Poin: a.pointsEarned,
       });
     });

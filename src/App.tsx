@@ -307,17 +307,14 @@ export function App() {
             <p className="text-emerald-700 font-semibold text-sm mt-1">Moda Labirin Soal</p>
           </div>
 
-          {/* AYAT: placeholder — ganti dengan teks Arab & terjemahan yang sudah kamu
-              pastikan akurat sebelum dipublikasikan. */}
-          <div className="border-y border-stone-200 py-5 px-2 bg-white/60 rounded-lg">
-            <p dir="rtl" lang="ar" className="text-xl leading-loose text-stone-800 font-serif mb-2">
-              [ISI AYAT DI SINI]
-            </p>
-            <p className="text-xs text-stone-500 italic">[ISI TERJEMAHAN DI SINI]</p>
-          </div>
+          <img
+            src="/qada-qadar-illustration.png"
+            alt="Ilustrasi Qada dan Qadar: dua siswa memulai dari titik yang sama, tapi pilihan berbeda membawa ke takdir yang berbeda"
+            className="w-full rounded-xl border border-stone-200 shadow-sm"
+          />
 
-          <p className="text-sm italic text-stone-500 px-4">
-            "Hari ini adalah hasil dari pilihan kita di masa lalu. Masa depan kita ditentukan oleh pilihan yang kita ambil hari ini."
+          <p className="text-sm italic text-stone-600 px-4">
+            "Pilihanmu hari ini adalah takdirmu esok. Berhati-hatilah dalam memilih."
           </p>
 
           <div className="space-y-3 pt-2">

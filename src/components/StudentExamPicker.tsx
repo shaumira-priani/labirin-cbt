@@ -8,7 +8,7 @@ import type { CustomExamDoc, CustomQuestionDoc, CustomSessionDoc } from '../type
 import { CustomExamRunner } from './CustomExamRunner';
 import type { AnswerRecord } from './CustomExamRunner';
 import { JourneyMap } from './JourneyMap';
-import { STUDENT_ROSTER } from '../data/schoolRoster';
+import { STUDENT_ROSTER, CLASS_NAMES } from '../data/schoolRoster';
 
 interface Props {
   onBack: () => void;
@@ -44,13 +44,21 @@ export const StudentExamPicker: React.FC<Props> = ({ onBack }) => {
       .catch(() => { setError('Gagal memuat daftar ujian. Coba muat ulang halaman.'); setStage('pickClass'); });
   }, []);
 
-  const classNames = useMemo(() => Array.from(new Set(allOptions.map((o) => o.className))).sort(), [allOptions]);
+  const classNames = useMemo(() => {
+    const seen = new Map<string, string>(); // lowercase -> canonical display string
+    allOptions.forEach((o) => {
+      const key = o.className.trim().toLowerCase();
+      const canonical = CLASS_NAMES.find((c) => c.toLowerCase() === key);
+      if (!seen.has(key)) seen.set(key, canonical ?? o.className);
+    });
+    return Array.from(seen.values()).sort();
+  }, [allOptions]);
   const subjectsForClass = useMemo(
-    () => Array.from(new Set(allOptions.filter((o) => o.className === selectedClass).map((o) => o.subject))).sort(),
+    () => Array.from(new Set(allOptions.filter((o) => o.className.toLowerCase() === selectedClass.toLowerCase()).map((o) => o.subject))).sort(),
     [allOptions, selectedClass]
   );
   const examsForSubject = useMemo(
-    () => allOptions.filter((o) => o.className === selectedClass && o.subject === selectedSubject),
+    () => allOptions.filter((o) => o.className.toLowerCase() === selectedClass.toLowerCase() && o.subject === selectedSubject),
     [allOptions, selectedClass, selectedSubject]
   );
 
@@ -211,7 +219,7 @@ export const StudentExamPicker: React.FC<Props> = ({ onBack }) => {
             </div>
             <div className="text-xs text-stone-500 bg-stone-50 border border-stone-100 rounded-lg p-3 space-y-1">
               <p>&bull; Jawab tiap soal dengan teliti. Jawaban benar di jalur utama bernilai lebih besar.</p>
-              <p>&bull; Kalau jawaban salah, kamu akan diarahkan ke soal remedial sebelum bisa lanjut.</p>
+              <p>&bull; Setiap jawaban menentukan langkahmu berikutnya. Jawaban salah akan mengarahkanmu ke jalur cabang di luar Golden Path.</p>
               <p>&bull; Jangan keluar dari layar penuh atau berpindah tab selama ujian berlangsung.</p>
             </div>
             <div>
