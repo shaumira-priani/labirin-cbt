@@ -9,6 +9,9 @@ import { JourneyMap } from './JourneyMap';
 import { CbtSecurityOverlay } from './CbtSecurityOverlay';
 import { enterFullscreen, exitFullscreen } from '../utils/fullscreenHelpers';
 import { buildSheetsPayload, sendResultToGoogleSheets } from '../utils/googleSheetsWebhook';
+import { initialMazeState, replayHistory, transition, type AnswerRecord, type Snapshot } from '../utils/mazeStateMachine';
+
+export type { AnswerRecord };
 
 interface Props {
   exam: CustomExamDoc;
@@ -17,26 +20,6 @@ interface Props {
   onFinished: (finalScore: number, history: AnswerRecord[], goldenPathTarget: number) => void;
 }
 
-export interface AnswerRecord {
-  questionId: string;
-  selectedOption: OptionKey;
-  isCorrect: boolean;
-  isOnGoldenPath: boolean;
-  pointsEarned: number;
-}
-
-/** Full state needed to re-render a question and resume forward correctly —
- *  captured before every answer so "Kembali" can restore it exactly. */
-interface Snapshot {
-  questionId: string;
-  arrayPointer: number;
-  remainingBudget: number;
-  isOnGoldenPath: boolean;
-  consecutiveBranchCorrect: number;
-  selectedOption: OptionKey; // what they picked last time, pre-filled on going back
-}
-
-const RECOVERY_STREAK_NEEDED = 2;
 const SAVING_PAUSE_MS = 500; // brief neutral pause, no correctness reveal
 
 export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, onFinished }) => {
@@ -44,20 +27,35 @@ export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, on
   const questionsById = useMemo(() => Object.fromEntries(questions.map((q) => [q.id, q])), [questions]);
   const goldenPathTarget = graph.goldenPath.length;
 
-  const [currentId, setCurrentId] = useState<string>(graph.goldenPath[0]);
-  const [arrayPointer, setArrayPointer] = useState(0);
-  const [remainingBudget, setRemainingBudget] = useState(goldenPathTarget);
-  const [isOnGoldenPath, setIsOnGoldenPath] = useState(true);
-  const [consecutiveBranchCorrect, setConsecutiveBranchCorrect] = useState(0);
+  // If `session.answers` already has entries (student is RESUMING after a
+  // disconnect), replay them through the same state machine to land exactly
+  // where they left off. A brand-new session just replays an empty array,
+  // which naturally resolves to the fresh starting state.
+  const resumed = useMemo(
+    () => replayHistory(graph, session.answers as AnswerRecord[]),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [session.id]
+  );
+  const wasResumed = session.answers.length > 0;
+
+  const [currentId, setCurrentId] = useState<string>(
+    resumed.state.currentId === 'SELESAI' ? (graph.goldenPath[0] ?? '') : resumed.state.currentId
+  );
+  const [arrayPointer, setArrayPointer] = useState(resumed.state.arrayPointer);
+  const [remainingBudget, setRemainingBudget] = useState(resumed.state.remainingBudget);
+  const [isOnGoldenPath, setIsOnGoldenPath] = useState(resumed.state.isOnGoldenPath);
+  const [consecutiveBranchCorrect, setConsecutiveBranchCorrect] = useState(resumed.state.consecutiveBranchCorrect);
   const [selected, setSelected] = useState<OptionKey | null>(null);
   const [submittingAnswer, setSubmittingAnswer] = useState(false);
-  const [history, setHistory] = useState<AnswerRecord[]>([]);
-  const [pathStack, setPathStack] = useState<Snapshot[]>([]);
-  const [finished, setFinished] = useState(false);
+  const [history, setHistory] = useState<AnswerRecord[]>(session.answers as AnswerRecord[]);
+  const [pathStack, setPathStack] = useState<Snapshot[]>(resumed.pathStack);
+  const [finished, setFinished] = useState(resumed.state.currentId === 'SELESAI');
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [lastFinalHistory, setLastFinalHistory] = useState<AnswerRecord[] | null>(null);
 
   // --- Fullscreen + anti-cheat (mirrors the legacy maze quiz's behaviour) ---
-  const [violationsCount, setViolationsCount] = useState(0);
+  const [violationsCount, setViolationsCount] = useState(session.violationsCount ?? 0);
   const [securityOpen, setSecurityOpen] = useState(false);
   const [securityReason, setSecurityReason] = useState<'fullscreen_exit' | 'tab_switched'>('fullscreen_exit');
   const examActiveRef = useRef(true);
@@ -102,26 +100,32 @@ export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, on
   const currentQuestion = questionsById[currentId];
   const totalScore = history.reduce((sum, h) => sum + h.pointsEarned, 0);
 
-  const pickAnotherBranchQuestion = (excludeId: string): string => {
-    const pool = graph.branchPool;
-    if (pool.length <= 1) return pool[0] ?? excludeId;
-    let idx = pool.indexOf(excludeId);
-    idx = (idx + 1) % pool.length;
-    if (pool[idx] === excludeId) idx = (idx + 1) % pool.length;
-    return pool[idx];
-  };
-
   const handleSelect = (key: OptionKey) => {
     if (submittingAnswer) return;
     setSelected(key);
   };
+
+  const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> =>
+    Promise.race([
+      promise,
+      new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Koneksi lambat/terputus')), ms)),
+    ]);
 
   const finishExam = async (finalHistory: AnswerRecord[]) => {
     const finalScore = finalHistory.reduce((sum, h) => sum + h.pointsEarned, 0);
     const endTime = Date.now();
     setFinished(true);
     setSubmitting(true);
-    await submitSession(session.id, finalScore);
+    setSubmitError(null);
+    setLastFinalHistory(finalHistory);
+
+    try {
+      await withTimeout(submitSession(session.id, finalScore), 15000);
+    } catch {
+      setSubmitting(false);
+      setSubmitError('Gagal menyimpan hasil ke server (koneksi lambat/terputus). Skormu tetap tampil di bawah — coba tekan "Simpan Ulang", atau screenshot layar ini sebagai bukti ke guru.');
+      return;
+    }
 
     if (exam.sheetsWebhookUrl) {
       const lostCount = finalHistory.filter((h) => h.isOnGoldenPath && !h.isCorrect).length;
@@ -141,10 +145,13 @@ export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, on
     onFinished(finalScore, finalHistory, goldenPathTarget);
   };
 
+  const retrySubmit = () => {
+    if (lastFinalHistory) finishExam(lastFinalHistory);
+  };
+
   const handleConfirm = async () => {
     if (!selected || !currentQuestion) return;
 
-    // Snapshot the state BEFORE this answer, so "Kembali" can restore it.
     const snapshot: Snapshot = {
       questionId: currentQuestion.id,
       arrayPointer,
@@ -168,86 +175,38 @@ export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, on
     const newHistory = [...history, record];
     setHistory(newHistory);
     setPathStack((prev) => [...prev, snapshot]);
-    await syncSessionAnswers(session.id, newHistory.map((h) => ({ ...h, answeredAt: Date.now() })));
+    // Fire-and-forget: don't block the exam UI on network speed, AND this is
+    // exactly the data a resumed session replays from if the device drops
+    // right after this.
+    syncSessionAnswers(session.id, newHistory.map((h) => ({ ...h, answeredAt: Date.now() }))).catch((err) => {
+      console.warn('Gagal sinkron jawaban (akan dicoba lagi otomatis):', err);
+    });
 
     setTimeout(async () => {
-      let nextId: string | 'SELESAI';
-      let nextIsOnGolden = isOnGoldenPath;
-      let nextConsecutive = consecutiveBranchCorrect;
-      let nextPointer = arrayPointer;
+      const nextState = transition(
+        graph,
+        { currentId, arrayPointer, remainingBudget, isOnGoldenPath, consecutiveBranchCorrect },
+        currentQuestion.id,
+        selected,
+        isCorrect
+      );
 
-      // Every question presented — golden OR remedial — consumes 1 slot from
-      // the SAME shared total budget. This guarantees total questions
-      // answered always equals the teacher's target (e.g. exactly 30),
-      // whichever mix of golden/remedial a student ends up taking.
-      const nextBudget = remainingBudget - 1;
-
-      if (isOnGoldenPath) {
-        nextConsecutive = 0;
-        if (isCorrect) {
-          nextPointer = arrayPointer + 1;
-          const arrayExhausted = nextPointer >= graph.goldenPath.length;
-          if (nextBudget <= 0 || arrayExhausted) {
-            nextId = 'SELESAI';
-          } else {
-            nextIsOnGolden = true;
-            nextId = graph.goldenPath[nextPointer];
-          }
-        } else {
-          nextPointer = arrayPointer + 1; // resume from here once recovered
-          if (nextBudget <= 0) {
-            nextId = 'SELESAI';
-          } else {
-            nextIsOnGolden = false;
-            nextId = graph.wrongAnswerTarget[currentQuestion.id]?.[selected] ?? graph.branchPool[0];
-          }
-        }
-      } else {
-        nextPointer = arrayPointer;
-        if (isCorrect) {
-          nextConsecutive = consecutiveBranchCorrect + 1;
-          if (nextConsecutive >= RECOVERY_STREAK_NEEDED) {
-            nextConsecutive = 0;
-            const arrayExhausted = arrayPointer >= graph.goldenPath.length;
-            if (nextBudget <= 0 || arrayExhausted) {
-              nextId = 'SELESAI';
-            } else {
-              nextIsOnGolden = true;
-              nextId = graph.goldenPath[arrayPointer];
-            }
-          } else if (nextBudget <= 0) {
-            nextId = 'SELESAI';
-          } else {
-            nextIsOnGolden = false;
-            nextId = pickAnotherBranchQuestion(currentQuestion.id);
-          }
-        } else {
-          nextConsecutive = 0;
-          if (nextBudget <= 0) {
-            nextId = 'SELESAI';
-          } else {
-            nextIsOnGolden = false;
-            nextId = graph.wrongAnswerTarget[currentQuestion.id]?.[selected] ?? pickAnotherBranchQuestion(currentQuestion.id);
-          }
-        }
-      }
-
-      setArrayPointer(nextPointer);
-      setRemainingBudget(nextBudget);
-      setIsOnGoldenPath(nextIsOnGolden);
-      setConsecutiveBranchCorrect(nextConsecutive);
+      setArrayPointer(nextState.arrayPointer);
+      setRemainingBudget(nextState.remainingBudget);
+      setIsOnGoldenPath(nextState.isOnGoldenPath);
+      setConsecutiveBranchCorrect(nextState.consecutiveBranchCorrect);
       setSelected(null);
       setSubmittingAnswer(false);
 
-      if (nextId === 'SELESAI') {
+      if (nextState.currentId === 'SELESAI') {
         await finishExam(newHistory);
       } else {
-        setCurrentId(nextId);
+        setCurrentId(nextState.currentId);
       }
     }, SAVING_PAUSE_MS);
   };
 
-  const handleBack = async () => {
+  const handleBack = () => {
     if (pathStack.length === 0 || submittingAnswer) return;
     const prevSnapshot = pathStack[pathStack.length - 1];
     const newHistory = history.slice(0, -1);
@@ -262,7 +221,9 @@ export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, on
     setConsecutiveBranchCorrect(prevSnapshot.consecutiveBranchCorrect);
     setSelected(prevSnapshot.selectedOption);
 
-    await syncSessionAnswers(session.id, newHistory.map((h) => ({ ...h, answeredAt: Date.now() })));
+    syncSessionAnswers(session.id, newHistory.map((h) => ({ ...h, answeredAt: Date.now() }))).catch((err) => {
+      console.warn('Gagal sinkron jawaban (akan dicoba lagi otomatis):', err);
+    });
   };
 
   if (finished) {
@@ -270,7 +231,16 @@ export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, on
       <div className="max-w-lg mx-auto py-16 px-4 text-center space-y-5">
         <PartyPopper className="w-12 h-12 text-emerald-600 mx-auto" />
         <h2 className="text-xl font-bold text-stone-900">Ujian Selesai!</h2>
-        <p className="text-stone-500 text-sm">{submitting ? 'Menyimpan hasil...' : 'Hasil sudah tersimpan.'}</p>
+        {submitError ? (
+          <div className="space-y-3">
+            <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{submitError}</p>
+            <button onClick={retrySubmit} className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-semibold rounded-xl">
+              Simpan Ulang
+            </button>
+          </div>
+        ) : (
+          <p className="text-stone-500 text-sm">{submitting ? 'Menyimpan hasil...' : 'Hasil sudah tersimpan.'}</p>
+        )}
         <p className="text-3xl font-bold text-emerald-700">{totalScore} poin</p>
         <div className="bg-white border border-stone-200 rounded-2xl p-5">
           <JourneyMap history={history} goldenPathTarget={goldenPathTarget} />
@@ -291,6 +261,12 @@ export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, on
         reason={securityReason}
         onReenterFullscreen={() => { enterFullscreen(); setSecurityOpen(false); }}
       />
+
+      {wasResumed && history.length === session.answers.length && (
+        <p className="text-xs text-center text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+          Progres sebelumnya berhasil dipulihkan — lanjut dari soal ke-{history.length + 1}.
+        </p>
+      )}
 
       <div className="text-xs text-stone-400 text-center">Soal ke-{history.length + 1}</div>
 

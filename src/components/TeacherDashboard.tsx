@@ -3,6 +3,7 @@ import { LogOut, Plus, FileText, Loader2, ChevronRight } from 'lucide-react';
 import type { User } from 'firebase/auth';
 import { getExamsForTeacher, createExam, logoutTeacher } from '../services/customExamService';
 import type { CustomExamDoc } from '../types/customExam';
+import { SUBJECTS, CLASS_NAMES } from '../data/schoolRoster';
 import { ExamEditor } from './ExamEditor';
 
 interface Props {
@@ -20,7 +21,7 @@ export const TeacherDashboard: React.FC<Props> = ({ user, onLoggedOut }) => {
   const [title, setTitle] = useState('');
   const [subject, setSubject] = useState('');
   const [duration, setDuration] = useState(60);
-  const [classNamesRaw, setClassNamesRaw] = useState('');
+  const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -42,15 +43,14 @@ export const TeacherDashboard: React.FC<Props> = ({ user, onLoggedOut }) => {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreateError(null);
-    const classNames = classNamesRaw.split(',').map((c) => c.trim()).filter(Boolean);
-    if (!title.trim() || !subject.trim() || classNames.length === 0) {
+    if (!title.trim() || !subject.trim() || selectedClasses.length === 0) {
       setCreateError('Judul, mata pelajaran, dan minimal 1 nama kelas wajib diisi.');
       return;
     }
     setCreating(true);
     try {
-      const exam = await createExam(user.uid, { title: title.trim(), subject: subject.trim(), durationMinutes: duration, classNames });
-      setTitle(''); setSubject(''); setDuration(60); setClassNamesRaw('');
+      const exam = await createExam(user.uid, { title: title.trim(), subject: subject.trim(), durationMinutes: duration, classNames: selectedClasses });
+      setTitle(''); setSubject(''); setDuration(60); setSelectedClasses([]);
       setShowCreateForm(false);
       await refreshExams();
       setOpenExamId(exam.id);
@@ -96,7 +96,10 @@ export const TeacherDashboard: React.FC<Props> = ({ user, onLoggedOut }) => {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-stone-700 mb-1.5">Mata Pelajaran</label>
-              <input value={subject} onChange={(e) => setSubject(e.target.value)} className="w-full px-3.5 py-2.5 border border-stone-300 rounded-xl text-sm" placeholder="Biologi" />
+              <select value={subject} onChange={(e) => setSubject(e.target.value)} className="w-full px-3.5 py-2.5 border border-stone-300 rounded-xl text-sm bg-white">
+                <option value="">-- Pilih Mapel --</option>
+                {SUBJECTS.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
             </div>
             <div>
               <label className="block text-xs font-semibold text-stone-700 mb-1.5">Durasi (menit)</label>
@@ -104,8 +107,21 @@ export const TeacherDashboard: React.FC<Props> = ({ user, onLoggedOut }) => {
             </div>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-stone-700 mb-1.5">Nama Kelas (pisah pakai koma)</label>
-            <input value={classNamesRaw} onChange={(e) => setClassNamesRaw(e.target.value)} className="w-full px-3.5 py-2.5 border border-stone-300 rounded-xl text-sm" placeholder="10 IPA 1, 10 IPA 2, 10 IPA 3" />
+            <label className="block text-xs font-semibold text-stone-700 mb-1.5">Nama Kelas (bisa pilih lebih dari satu)</label>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 border border-stone-200 rounded-xl p-3">
+              {CLASS_NAMES.map((c) => (
+                <label key={c} className="flex items-center gap-1.5 text-xs text-stone-700">
+                  <input
+                    type="checkbox"
+                    checked={selectedClasses.includes(c)}
+                    onChange={(e) =>
+                      setSelectedClasses((prev) => (e.target.checked ? [...prev, c] : prev.filter((x) => x !== c)))
+                    }
+                  />
+                  {c}
+                </label>
+              ))}
+            </div>
             <p className="text-xs text-stone-400 mt-1">Tiap kelas otomatis dapat kode akses sendiri-sendiri.</p>
           </div>
           {createError && <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{createError}</p>}

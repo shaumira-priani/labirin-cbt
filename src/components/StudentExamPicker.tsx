@@ -2,12 +2,13 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Loader2, KeyRound, Clock, ListChecks } from 'lucide-react';
 import {
   signInStudentAnonymously, getPublishedExamOptions, getAccessCodeForExamClass,
-  getExam, getExamQuestions, startSession,
+  getExam, getExamQuestions, startSession, findInProgressSession,
 } from '../services/customExamService';
 import type { CustomExamDoc, CustomQuestionDoc, CustomSessionDoc } from '../types/customExam';
 import { CustomExamRunner } from './CustomExamRunner';
 import type { AnswerRecord } from './CustomExamRunner';
 import { JourneyMap } from './JourneyMap';
+import { STUDENT_ROSTER } from '../data/schoolRoster';
 
 interface Props {
   onBack: () => void;
@@ -88,9 +89,10 @@ export const StudentExamPicker: React.FC<Props> = ({ onBack }) => {
       }
       const uid = await signInStudentAnonymously();
       const qs = await getExamQuestions(exam.id);
-      const newSession = await startSession(exam, uid, studentName.trim(), selectedClass);
+      const existing = await findInProgressSession(exam.id, uid);
+      const activeSession = existing ?? (await startSession(exam, uid, studentName.trim(), selectedClass));
       setQuestions(qs);
-      setSession(newSession);
+      setSession(activeSession);
       setStage('running');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal memulai ujian');
@@ -151,7 +153,7 @@ export const StudentExamPicker: React.FC<Props> = ({ onBack }) => {
             <h1 className="text-lg font-bold text-stone-900">Formulir Identitas Siswa</h1>
             <div>
               <label className="block text-xs font-semibold text-stone-700 mb-1.5">Kelas</label>
-              <select value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)} className="w-full px-3.5 py-2.5 border border-stone-300 rounded-xl text-sm bg-white">
+              <select value={selectedClass} onChange={(e) => { setSelectedClass(e.target.value); setStudentName(''); }} className="w-full px-3.5 py-2.5 border border-stone-300 rounded-xl text-sm bg-white">
                 <option value="">-- Pilih Kelas --</option>
                 {classNames.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
@@ -159,7 +161,12 @@ export const StudentExamPicker: React.FC<Props> = ({ onBack }) => {
             </div>
             <div>
               <label className="block text-xs font-semibold text-stone-700 mb-1.5">Nama Lengkap</label>
-              <input value={studentName} onChange={(e) => setStudentName(e.target.value)} className="w-full px-3.5 py-2.5 border border-stone-300 rounded-xl text-sm" placeholder="Nama kamu" />
+              <select value={studentName} onChange={(e) => setStudentName(e.target.value)} disabled={!selectedClass} className="w-full px-3.5 py-2.5 border border-stone-300 rounded-xl text-sm bg-white disabled:bg-stone-100">
+                <option value="">{selectedClass ? '-- Pilih Nama --' : '-- Pilih Kelas Terlebih Dahulu --'}</option>
+                {(STUDENT_ROSTER[selectedClass] ?? []).map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
             </div>
             {error && <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{error}</p>}
             <button type="submit" disabled={!selectedClass || !studentName.trim()} className="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-semibold py-2.5 rounded-xl disabled:opacity-40">

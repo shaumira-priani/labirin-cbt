@@ -233,6 +233,23 @@ export async function getExamQuestions(examId: string): Promise<CustomQuestionDo
 
 // --- Sessions ---------------------------------------------------------
 
+/** Looks for a session this exact student already started but hasn't
+ *  finished — used to resume after their device drops mid-exam instead of
+ *  starting over. Matches by studentUid, which Firebase Anonymous Auth keeps
+ *  persistent on the same browser/device across reloads. */
+export async function findInProgressSession(examId: string, studentUid: string): Promise<CustomSessionDoc | null> {
+  const snap = await getDocs(
+    query(
+      collection(db, 'sessions'),
+      where('examId', '==', examId),
+      where('studentUid', '==', studentUid),
+      where('status', '==', 'in_progress')
+    )
+  );
+  if (snap.empty) return null;
+  return snap.docs[0].data() as CustomSessionDoc;
+}
+
 export async function startSession(
   exam: CustomExamDoc,
   studentUid: string,

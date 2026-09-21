@@ -13,6 +13,7 @@ import { RichTextEditor } from './RichTextEditor';
 import { SavedQuestionCard } from './SavedQuestionCard';
 import { exportResultsToExcel } from '../utils/examResultsExport';
 import { APPS_SCRIPT_TEMPLATE } from '../utils/googleSheetsWebhook';
+import { CLASS_NAMES } from '../data/schoolRoster';
 import { downloadExcelTemplate, WORD_TEMPLATE_INSTRUCTIONS } from '../utils/examTemplate';
 import type { CustomExamDoc, ClassTokenDoc, CustomQuestionDoc, DraftQuestion, CustomSessionDoc } from '../types/customExam';
 import type { OptionKey } from '../types/exam';
@@ -162,10 +163,12 @@ export const ExamEditor: React.FC<Props> = ({ examId, onBack }) => {
     await load();
   };
 
+  const [newTokenClass, setNewTokenClass] = useState('');
+
   const handleAddToken = async () => {
-    const className = prompt('Nama kelas baru:');
-    if (!className?.trim()) return;
-    await addClassToken(examId, className.trim());
+    if (!newTokenClass.trim()) return;
+    await addClassToken(examId, newTokenClass.trim());
+    setNewTokenClass('');
     const tokens = await getClassTokens(examId);
     setClassTokens(tokens);
   };
@@ -368,9 +371,17 @@ export const ExamEditor: React.FC<Props> = ({ examId, onBack }) => {
 
       {tab === 'kelas' && (
         <div className="space-y-3">
-          <button onClick={handleAddToken} className="text-sm px-4 py-2 border border-stone-300 rounded-xl hover:bg-stone-50">
-            + Tambah Kode untuk Kelas Ini
-          </button>
+          <div className="flex gap-2">
+            <select value={newTokenClass} onChange={(e) => setNewTokenClass(e.target.value)} className="flex-1 px-3 py-2 border border-stone-300 rounded-xl text-sm bg-white">
+              <option value="">-- Pilih Kelas untuk Ditambahkan --</option>
+              {CLASS_NAMES.filter((c) => !classTokens.some((t) => t.className === c)).map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+            <button onClick={handleAddToken} disabled={!newTokenClass} className="text-sm px-4 py-2 border border-stone-300 rounded-xl hover:bg-stone-50 disabled:opacity-40 whitespace-nowrap">
+              + Tambah Kode
+            </button>
+          </div>
           <div className="bg-white border border-stone-200 rounded-xl divide-y divide-stone-100">
             {classTokens.map((ct) => (
               <div key={ct.id} className="flex items-center justify-between px-4 py-3">
