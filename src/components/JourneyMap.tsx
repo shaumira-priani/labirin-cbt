@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { Flag, MapPin } from 'lucide-react';
+import { useExamLang } from '../i18n/examLanguage';
 
 export interface AnswerRecord {
   questionId: string;
@@ -29,6 +30,7 @@ const PAD_LEFT = 36;
 const PAD_RIGHT = 60;
 
 export const JourneyMap: React.FC<Props> = ({ history, goldenPathTarget }) => {
+  const { t } = useExamLang();
   const nodes: Node[] = useMemo(
     () =>
       history.map((h, i) => ({
@@ -54,11 +56,11 @@ export const JourneyMap: React.FC<Props> = ({ history, goldenPathTarget }) => {
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h3 className="text-sm font-semibold text-stone-700 flex items-center gap-1.5">
-          <MapPin className="w-4 h-4 text-emerald-700" /> Peta Jalur Labirin
+          <MapPin className="w-4 h-4 text-emerald-700" /> {t.journeyMapTitle}
         </h3>
         <div className="flex items-center gap-3 text-[11px] text-stone-500">
-          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" /> Benar</span>
-          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-rose-400 inline-block" /> Tersesat</span>
+          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" /> {t.legendCorrect}</span>
+          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-rose-400 inline-block" /> {t.legendLost}</span>
         </div>
       </div>
 
@@ -102,38 +104,38 @@ export const JourneyMap: React.FC<Props> = ({ history, goldenPathTarget }) => {
       <div className="grid grid-cols-3 gap-2 text-center">
         <div className="bg-stone-50 rounded-lg py-2">
           <p className="text-lg font-bold text-stone-800">{history.length}</p>
-          <p className="text-[11px] text-stone-500">Total Langkah</p>
+          <p className="text-[11px] text-stone-500">{t.statTotalSteps}</p>
         </div>
         <div className="bg-stone-50 rounded-lg py-2">
           <p className="text-lg font-bold text-rose-500">{lostMoments}</p>
-          <p className="text-[11px] text-stone-500">Kali Tersesat</p>
+          <p className="text-[11px] text-stone-500">{t.statLostCount}</p>
         </div>
         <div className="bg-stone-50 rounded-lg py-2">
           <p className="text-lg font-bold text-amber-600">{branchSteps}</p>
-          <p className="text-[11px] text-stone-500">Langkah di Jalur Cabang</p>
+          <p className="text-[11px] text-stone-500">{t.statBranchSteps}</p>
         </div>
       </div>
 
       {shortfall > 0 && (
         <p className="text-xs text-stone-500 bg-stone-50 border border-stone-100 rounded-lg px-3 py-2">
-          Setiap pilihan menentukan langkah berikutnya. Target Golden Path ada <strong>{goldenPathTarget}</strong> langkah, tapi karena tersesat {lostMoments}x, kamu cuma sempat menempuh <strong>{goldenStepsTaken}</strong> langkah di jalur itu — sisanya jadi langkah di jalur cabang.
+          {t.shortfallMessage(goldenPathTarget, lostMoments, goldenStepsTaken)}
         </p>
       )}
 
       {lostAtSteps.length > 0 ? (
         <div className="space-y-1.5">
-          <p className="text-xs font-semibold text-stone-600">Kamu tersesat di langkah ke-:</p>
+          <p className="text-xs font-semibold text-stone-600">{t.lostAtLabel}</p>
           <div className="flex flex-wrap gap-1.5">
             {lostAtSteps.map((s) => (
               <span key={s} className="text-xs bg-rose-50 text-rose-700 border border-rose-200 rounded-full px-2.5 py-1">
-                Langkah #{s}
+                {t.stepShort}{s}
               </span>
             ))}
           </div>
         </div>
       ) : (
         <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 flex items-center gap-1.5">
-          <Flag className="w-3.5 h-3.5" /> Setiap pilihanmu tepat — kamu jalan lurus tanpa tersesat sekali pun.
+          <Flag className="w-3.5 h-3.5" /> {t.perfectRun}
         </p>
       )}
     </div>

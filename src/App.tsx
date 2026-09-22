@@ -314,7 +314,7 @@ export function App() {
           />
 
           <p className="text-sm italic text-stone-600 px-4">
-            "Pilihanmu hari ini adalah takdirmu esok. Berhati-hatilah dalam memilih."
+            "Pilihanmu hari ini adalah takdirmu esok. Jawaban yang kamu pilih sekarang menentukan soal mana yang akan kamu hadapi berikutnya — berhati-hatilah dalam memilih."
           </p>
 
           <div className="space-y-3 pt-2">

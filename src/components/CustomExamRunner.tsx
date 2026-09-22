@@ -10,6 +10,7 @@ import { CbtSecurityOverlay } from './CbtSecurityOverlay';
 import { enterFullscreen, exitFullscreen } from '../utils/fullscreenHelpers';
 import { buildSheetsPayload, sendResultToGoogleSheets } from '../utils/googleSheetsWebhook';
 import { initialMazeState, replayHistory, transition, type AnswerRecord, type Snapshot } from '../utils/mazeStateMachine';
+import { useExamLang } from '../i18n/examLanguage';
 
 export type { AnswerRecord };
 
@@ -23,6 +24,7 @@ interface Props {
 const SAVING_PAUSE_MS = 500; // brief neutral pause, no correctness reveal
 
 export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, onFinished }) => {
+  const { t } = useExamLang();
   const graph = exam.mazeGraph!;
   const questionsById = useMemo(() => Object.fromEntries(questions.map((q) => [q.id, q])), [questions]);
   const goldenPathTarget = graph.goldenPath.length;
@@ -108,7 +110,7 @@ export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, on
   const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> =>
     Promise.race([
       promise,
-      new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Koneksi lambat/terputus')), ms)),
+      new Promise<T>((_, reject) => setTimeout(() => reject(new Error(t.saveFailed)), ms)),
     ]);
 
   const finishExam = async (finalHistory: AnswerRecord[]) => {
@@ -123,7 +125,7 @@ export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, on
       await withTimeout(submitSession(session.id, finalScore), 15000);
     } catch {
       setSubmitting(false);
-      setSubmitError('Gagal menyimpan hasil ke server (koneksi lambat/terputus). Skormu tetap tampil di bawah — coba tekan "Simpan Ulang", atau screenshot layar ini sebagai bukti ke guru.');
+      setSubmitError(t.saveFailed);
       return;
     }
 
@@ -230,18 +232,18 @@ export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, on
     return (
       <div className="max-w-lg mx-auto py-16 px-4 text-center space-y-5">
         <PartyPopper className="w-12 h-12 text-emerald-600 mx-auto" />
-        <h2 className="text-xl font-bold text-stone-900">Ujian Selesai!</h2>
+        <h2 className="text-xl font-bold text-stone-900">{t.examFinished}</h2>
         {submitError ? (
           <div className="space-y-3">
             <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{submitError}</p>
             <button onClick={retrySubmit} className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-semibold rounded-xl">
-              Simpan Ulang
+              {t.retrySave}
             </button>
           </div>
         ) : (
-          <p className="text-stone-500 text-sm">{submitting ? 'Menyimpan hasil...' : 'Hasil sudah tersimpan.'}</p>
+          <p className="text-stone-500 text-sm">{submitting ? t.saving : t.saved}</p>
         )}
-        <p className="text-3xl font-bold text-emerald-700">{totalScore} poin</p>
+        <p className="text-3xl font-bold text-emerald-700">{totalScore} {t.points}</p>
         <div className="bg-white border border-stone-200 rounded-2xl p-5">
           <JourneyMap history={history} goldenPathTarget={goldenPathTarget} />
         </div>
@@ -250,7 +252,7 @@ export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, on
   }
 
   if (!currentQuestion) {
-    return <p className="text-center py-16 text-rose-600 text-sm">Soal tidak ditemukan (ID: {currentId}). Hubungi Guru Pengawas.</p>;
+    return <p className="text-center py-16 text-rose-600 text-sm">{t.questionNotFound} (ID: {currentId}). {t.contactSupervisor}</p>;
   }
 
   return (
@@ -264,11 +266,11 @@ export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, on
 
       {wasResumed && history.length === session.answers.length && (
         <p className="text-xs text-center text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
-          Progres sebelumnya berhasil dipulihkan — lanjut dari soal ke-{history.length + 1}.
+          {t.resumed(history.length + 1)}
         </p>
       )}
 
-      <div className="text-xs text-stone-400 text-center">Soal ke-{history.length + 1}</div>
+      <div className="text-xs text-stone-400 text-center">{t.questionOf(history.length + 1)}</div>
 
       <div className="bg-white border border-stone-200 rounded-2xl p-6 space-y-4">
         {currentQuestion.imageUrl && (
@@ -301,14 +303,14 @@ export const CustomExamRunner: React.FC<Props> = ({ exam, questions, session, on
             disabled={pathStack.length === 0 || submittingAnswer}
             className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl border border-stone-300 text-stone-600 text-sm font-semibold disabled:opacity-30 hover:bg-stone-50 transition-colors"
           >
-            <ArrowLeft className="w-4 h-4" /> Kembali
+            <ArrowLeft className="w-4 h-4" /> {t.back}
           </button>
           <button
             onClick={handleConfirm}
             disabled={!selected || submittingAnswer}
             className="flex-1 flex items-center justify-center gap-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-40 text-white font-semibold py-2.5 rounded-xl transition-colors"
           >
-            {submittingAnswer && <Loader2 className="w-4 h-4 animate-spin" />} Jawab
+            {submittingAnswer && <Loader2 className="w-4 h-4 animate-spin" />} {t.answer}
           </button>
         </div>
       </div>
